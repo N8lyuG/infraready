@@ -122,5 +122,6 @@ tableau = {
 }
 
 SORTIE.parent.mkdir(parents=True, exist_ok=True)
-SORTIE.write_text(json.dumps(tableau, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+with open(SORTIE, "w", encoding="utf-8", newline="\n") as f:  # LF meme sous Windows (la CI tourne sous Linux)
+    f.write(json.dumps(tableau, indent=2, ensure_ascii=False) + "\n")
 print(f"{SORTIE} : {len(panneaux)} panneaux")
