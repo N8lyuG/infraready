@@ -183,6 +183,18 @@
         state: present
         update_cache: true
 
+    # Consultation anonyme en LECTURE SEULE (role Viewer) : ecran de supervision / demonstration
+    # sans partager le compte admin. Port 3000 limite au reseau du labo par ufw (voir plus bas).
+    - name: Autoriser la consultation anonyme en lecture seule
+      ansible.builtin.blockinfile:
+        path: /etc/default/grafana-server
+        marker: "# {mark} InfraReady - geree par Ansible"
+        block: |
+          GF_AUTH_ANONYMOUS_ENABLED=true
+          GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+          GF_USERS_ALLOW_SIGN_UP=false
+      notify: Redemarrer Grafana
+
     - name: Deployer la source de donnees Prometheus
       ansible.builtin.copy:
         src: "{{ racine_depot }}/monitoring/grafana/provisioning/datasources/prometheus.yml"

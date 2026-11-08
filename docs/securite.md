@@ -67,7 +67,7 @@ Politique : **tout refuser en entrée, puis n'ouvrir que ce qu'un flux document�
 - `ufw` est activé **après** l'ajout de la règle SSH : sinon Ansible se couperait lui-même l'accès.
 - `logging low` : les paquets refusés sont tracés dans `/var/log/ufw.log` (`[UFW BLOCK]`), ce qui sert au diagnostic (voir [incident.md](incident.md)).
 - Les collecteurs exposent des informations sur le système (versions, services, disques) : ils ne sont joignables que par Prometheus.
-- Grafana : compte `admin` dont le mot de passe par défaut est changé à la première connexion ; inscription libre désactivée (défaut) ; tableaux de bord en lecture seule (`allowUiUpdates: false`).
+- Grafana : consultation anonyme en **lecture seule** (rôle Viewer, port 3000 limité au labo) pour l'écran de supervision ; administration par le compte `admin` (mot de passe changé, hors dépôt) ; inscription désactivée ; tableaux de bord non modifiables depuis l'interface (`allowUiUpdates: false`). En production : authentification AD (LDAP) au lieu de l'anonyme.
 
 ## 4. Sécurité de la chaîne d'automatisation
 
