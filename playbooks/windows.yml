@@ -1,8 +1,8 @@
 ---
 # windows.yml - InfraReady (S4, tache D : playbook Windows) - non destructif.
-# Lancement depuis le dossier du projet sur OPS01 :
-#   ansible-playbook -i inventory.ini windows.yml --syntax-check
-#   ansible-playbook -i inventory.ini windows.yml -k     # -k = mot de passe de svc_ansible (WinRM)
+# Lancement depuis la racine du depot sur OPS01 :
+#   ansible-playbook playbooks/windows.yml --syntax-check
+#   ansible-playbook playbooks/windows.yml -k     # -k = mot de passe de svc_ansible (WinRM)
 # Pas de become sous Windows : les droits sont ceux de svc_ansible (Domain Admins, risque documente).
 # Verification apres execution : le script deploye est execute puis son resultat est verifie (assert).
 - name: Configurer et controler WIN-DC01

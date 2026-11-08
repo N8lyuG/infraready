@@ -1,0 +1,15 @@
+---
+# Variables communes a tout le laboratoire.
+reseau_labo: 192.168.50.0/24
+ip_ops01: 192.168.50.30            # seule source autorisee a collecter les metriques
+domaine: infraready.test
+
+# Seuils partages par la maintenance, la verification et les alertes Prometheus
+seuil_disque_pct: 80               # au-dela : alerte / maintenance bloquee
+seuil_disque_min_maj_mo: 1024      # espace libre minimal sur / avant une mise a jour
+
+# Ports de supervision
+port_node_exporter: 9100
+port_windows_exporter: 9182
+port_prometheus: 9090
+port_grafana: 3000

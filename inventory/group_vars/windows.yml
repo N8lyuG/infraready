@@ -1,0 +1,15 @@
+---
+# WinRM HTTP 5985 + NTLM : les messages sont chiffres par NTLM. HTTPS 5986 = amelioration documentee.
+# Mot de passe de svc_ansible demande a l'execution (-k), jamais stocke ici.
+ansible_connection: winrm
+ansible_user: svc_ansible@infraready.test
+ansible_port: 5985
+ansible_winrm_scheme: http
+ansible_winrm_transport: ntlm
+
+services_critiques:
+  - DNS
+  - NTDS
+  - Netlogon
+  - WinRM
+  - windows_exporter

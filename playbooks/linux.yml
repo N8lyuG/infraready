@@ -1,0 +1,79 @@
+---
+# linux.yml - InfraReady (tache D, ex-nginx.yml des seances 3-4) : serveur web + pare-feu sur LINUX01.
+# Lancement depuis la racine du depot sur OPS01 (ssh-agent charge) :
+#   ansible-playbook playbooks/linux.yml --syntax-check
+#   ansible-playbook playbooks/linux.yml --check --diff -K   # simulation
+#   ansible-playbook playbooks/linux.yml -K                  # -K = mot de passe sudo du compte ansible
+# Idempotence verifiee en S4 (1er passage changed=3, 2e passage changed=0 : preuves S04_15 / S04_16).
+- name: Configurer le serveur web InfraReady
+  hosts: linux
+  become: true
+  vars:
+    paquet_web: nginx
+    service_web: nginx
+    site_message: "Bienvenue sur le serveur web InfraReady"
+
+  tasks:
+    - name: Installer Nginx et ufw
+      ansible.builtin.apt:
+        name:
+          - "{{ paquet_web }}"
+          - ufw
+        state: present
+        update_cache: true
+        cache_valid_time: 3600      # evite un "changed" a chaque passage (idempotence)
+
+    - name: Deployer la page du site
+      ansible.builtin.template:
+        src: templates/index.html.j2
+        dest: /var/www/html/index.html
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Recharger nginx       # handler declenche uniquement si la page change
+
+    - name: Demarrer et activer Nginx
+      ansible.builtin.service:
+        name: "{{ service_web }}"
+        state: started
+        enabled: true
+
+    # --- Pare-feu : moindre privilege reseau ------------------------------------------------
+    # Ordre important : les regles d'autorisation SSH sont posees AVANT l'activation,
+    # sinon Ansible se couperait lui-meme l'acces (verrouillage).
+    - name: Autoriser SSH depuis le reseau du laboratoire uniquement
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        src: "{{ reseau_labo }}"
+        comment: "SSH administration labo"
+
+    - name: Autoriser HTTP depuis le reseau du laboratoire
+      community.general.ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+        src: "{{ reseau_labo }}"
+        comment: "Site web InfraReady"
+
+    - name: Autoriser node_exporter depuis OPS01 seulement (collecte Prometheus)
+      community.general.ufw:
+        rule: allow
+        port: "{{ port_node_exporter | string }}"
+        proto: tcp
+        src: "{{ ip_ops01 }}"
+        comment: "Prometheus OPS01"
+
+    - name: Activer ufw avec refus par defaut en entree
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+        logging: "low"              # paquets refuses traces dans /var/log/ufw.log (diagnostic)
+
+  handlers:
+    - name: Recharger nginx
+      ansible.builtin.service:
+        name: "{{ service_web }}"
+        state: reloaded
