@@ -1,0 +1,43 @@
+---
+# windows.yml - InfraReady (S4, tache D : playbook Windows) - non destructif.
+# Lancement depuis le dossier du projet sur OPS01 :
+#   ansible-playbook -i inventory.ini windows.yml --syntax-check
+#   ansible-playbook -i inventory.ini windows.yml -k     # -k = mot de passe de svc_ansible (WinRM)
+# Pas de become sous Windows : les droits sont ceux de svc_ansible (Domain Admins, risque documente).
+# Verification apres execution : le script deploye est execute puis son resultat est verifie (assert).
+- name: Configurer et controler WIN-DC01
+  hosts: windows
+  vars:
+    dossier_scripts: 'C:\InfraReady\Scripts'
+    service_dns: DNS
+
+  tasks:
+    - name: Creer le dossier des scripts d'exploitation
+      ansible.windows.win_file:
+        path: "{{ dossier_scripts }}"
+        state: directory
+
+    - name: Deployer le script de controle du client DNS
+      ansible.windows.win_copy:
+        src: files/Check-DnsClient.ps1
+        dest: "{{ dossier_scripts }}\\Check-DnsClient.ps1"
+
+    - name: Garantir que le service DNS est demarre et automatique
+      ansible.windows.win_service:
+        name: "{{ service_dns }}"
+        state: started
+        start_mode: auto
+
+    - name: Executer le controle (lecture seule)
+      ansible.windows.win_command: powershell.exe -NoProfile -File "{{ dossier_scripts }}\Check-DnsClient.ps1"
+      register: controle
+      changed_when: false      # un controle ne modifie rien : evite un "changed" a chaque passage
+      failed_when: false       # le verdict est rendu par la tache assert ci-dessous
+
+    - name: Verifier le resultat du controle
+      ansible.builtin.assert:
+        that:
+          - controle.rc == 0
+          - "'OK' in controle.stdout"
+        success_msg: "Controle reussi : {{ controle.stdout | trim }}"
+        fail_msg: "Controle en echec (rc={{ controle.rc }}) : {{ controle.stdout | trim }}"

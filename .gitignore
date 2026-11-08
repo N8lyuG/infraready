@@ -1,0 +1,13 @@
+# Secrets et fichiers sensibles : jamais versionnes
+*.key
+*.pem
+id_*
+!*.pub
+.vault_pass*
+vault_pass*
+*.retry
+# Artefacts locaux
+*.etat-initial
+__pycache__/
+.venv/
+*.msi
