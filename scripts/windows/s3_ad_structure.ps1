@@ -57,13 +57,13 @@ $users = @(
 $newUsers = $users | Where-Object { -not (Get-ADUser -Filter "SamAccountName -eq '$($_.Sam)'") }
 if ($newUsers) {
     # Mot de passe de TEST commun, saisi a l'execution, jamais stocke (a mettre dans le gestionnaire).
-    $pwd = Read-Host 'Mot de passe des comptes de test (complexe, 12+ caracteres)' -AsSecureString
+    $mdpTest = Read-Host 'Mot de passe des comptes de test (complexe, 12+ caracteres)' -AsSecureString
 }
 foreach ($u in $users) {
     if ($newUsers.Sam -contains $u.Sam) {
         New-ADUser -Name "$($u.Given) $($u.Surname)" -GivenName $u.Given -Surname $u.Surname `
             -SamAccountName $u.Sam -UserPrincipalName "$($u.Sam)@infraready.test" `
-            -Path $ouUsers -AccountPassword $pwd -Enabled $true -Description 'Compte de TEST InfraReady'
+            -Path $ouUsers -AccountPassword $mdpTest -Enabled $true -Description 'Compte de TEST InfraReady'
         Write-Host "   cree   : $($u.Sam)"
     } else { Write-Host "   existe : $($u.Sam)" }
     Add-ADGroupMember -Identity $u.Group -Members $u.Sam      # sans effet si deja membre

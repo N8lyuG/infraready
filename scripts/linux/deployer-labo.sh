@@ -31,7 +31,10 @@ besoin_secrets() {
     local i
     for i in 1 2 3; do
         demander "Mot de passe sudo de nalyug sur OPS01" "$SECRETS/ops01"
-        sudo -k; sudo -S -p '' -v < "$SECRETS/ops01" 2>/dev/null && { echo "  -> OK"; break; }
+        sudo -k
+        # SC2024 voulu : la redirection est faite par l'utilisateur, sudo -S lit le mot de passe sur stdin.
+        # shellcheck disable=SC2024
+        sudo -S -p '' -v < "$SECRETS/ops01" 2>/dev/null && { echo "  -> OK"; break; }
         echo "  -> refuse, recommence"; (( i == 3 )) && exit 1
     done
     for i in 1 2 3; do
@@ -73,6 +76,8 @@ prerequis() {
     etape S05_01_ops01_depot git log --oneline --decorate
     etape S05_01b_ops01_collections ansible-galaxy collection install -r requirements.yml
     etape S05_01c_ops01_inventaire ansible-inventory --graph
+    # SC2016 voulu : $pb doit etre developpe par le bash -c interieur, pas ici.
+    # shellcheck disable=SC2016
     etape S05_01d_ops01_syntaxe bash -c 'for pb in playbooks/*.yml; do ansible-playbook "$pb" --syntax-check || exit 1; done'
 }
 
