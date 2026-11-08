@@ -105,7 +105,7 @@ Le runner hébergé par GitHub **n'a aucune route vers le labo privé** : il val
 | D | Playbooks Linux et Windows, idempotence | ✅ séance 4 — 2e passage `changed=0` |
 | E | Maintenance et mises à jour | ✅ séance 6 — LINUX01/OPS01 mis à jour, Windows Update en rescue (DC sans Internet) — [maintenance.md](docs/maintenance.md) |
 | F | Prometheus, Grafana, seuils et alertes | ✅ séances 5–6 — 4 cibles up, 7 alertes, tableau provisionné |
-| G | Dépôt GitHub + Actions | ✅ workflow `validation.yml` |
+| G | Dépôt GitHub + Actions | ✅ séance 7 — [run vert](https://github.com/N8lyuG/infraready/actions/runs/42532082985) : 4 jobs (lint, supervision, scripts, secrets) |
 | H | Diagnostic d'incident | ✅ séance 6 — détection 22 s, résolution en 7 min — [incident.md](docs/incident.md) + [scénarios S4](docs/scenarios-pannes.md) |
 
 Les preuves (captures) sont rangées hors dépôt par séance (`preuves/SXX/SXX_NN_machine_sujet.png`) et reprises dans le dossier technique PDF.
