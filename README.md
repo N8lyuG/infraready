@@ -54,7 +54,7 @@ infraready/
 │   ├── linux/check-nginx.sh    contrôle de service (code retour exploitable)
 │   ├── windows/s3_ad_structure.ps1   OU, groupes AGDLP, comptes, partage (tâche B)
 │   └── outils/                 génération du tableau de bord, contrôle de cohérence (CI)
-├── docs/                       architecture, adressage, sécurité, maintenance, incident, scénarios de panne
+├── docs/                       architecture, adressage, sécurité, supervision, maintenance, incident, scénarios de panne, dossier PDF, présentation
 └── .github/workflows/validation.yml
 ```
 

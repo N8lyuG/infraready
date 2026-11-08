@@ -43,6 +43,8 @@ besoin_secrets() {
             && { echo "  -> OK"; break; }
         echo "  -> refuse, recommence"; (( i == 3 )) && exit 1
     done
+    # WinRM demande seulement si une etape touche WIN-DC01 (moins de secrets saisis = moins de risque)
+    [[ " $* " =~ \ (monitoring|verification|maintenance|tout)\  ]] || return 0
     for i in 1 2 3; do
         demander "Mot de passe WinRM de svc_ansible" "$SECRETS/winrm"
         ansible windows --connection-password-file "$SECRETS/winrm" -m ansible.windows.win_ping >/dev/null 2>&1 \
@@ -215,7 +217,7 @@ redemarrage() {     # noyau mis a jour pendant la maintenance : redemarrage enca
 }
 
 (( $# )) || { sed -n '2,6p' "$0"; exit 1; }
-besoin_secrets
+besoin_secrets "$@"
 for e in "$@"; do
     case $e in
         prerequis|linux|monitoring|tableau|verification|maintenance|incident|pannes|fermeture_nat|redemarrage) $e ;;

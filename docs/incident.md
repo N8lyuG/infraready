@@ -58,6 +58,14 @@ _Preuves : S06_11e1, S06_12e1, S06_13e1, S06_12a_grafana_aucun_symptome_connexio
 _Preuves : S06_12_incident_symptome_firing.png, S06_12b_prometheus_alerte_pending.png,
 S06_12c_grafana_linux01_hors_service.png_
 
+### Périmètre
+
+| Concerné | Non concerné |
+|---|---|
+| Supervision de LINUX01 : métriques système et état des services absents de Prometheus et Grafana | Le site web (HTTP 200 depuis le labo), SSH, Ansible |
+| Les alertes de LINUX01 (disque, CPU, service arrêté) ne pouvaient plus se déclencher | OPS01 et WIN-DC01, toujours collectés (`up=1`) |
+| Utilisateurs : aucun impact direct ; risque = une vraie panne de LINUX01 passerait inaperçue | Les données sur `/srv/infraready` |
+
 ## 2. Tests et journaux consultés (du plus général au plus précis)
 
 | # | Question | Commande | Résultat attendu si… | Résultat obtenu |
@@ -118,6 +126,16 @@ _Preuves : S06_14a_correction_check_diff.png, S06_14b_correction.png_
 _Preuves : S06_15a_retour_normal.png, S06_15b_verification_apres_incident.png,
 S06_15d_grafana_retour_normal_trou_visible.png, S06_15e_prometheus_up_linux01_0_puis_1.png_
 
+## 6. Prévention
+
+| Mesure | Effet | État |
+|---|---|---|
+| Règles de pare-feu uniquement posées par Ansible (`linux.yml`) | Une suppression manuelle est annulée au prochain déploiement ; `--check` la révèle avant | En place |
+| `ansible-playbook playbooks/linux.yml --check --diff` planifié (dérive de configuration) | Détecte l'écart sans attendre la coupure de la connexion | Proposé |
+| Après tout changement de pare-feu : `verification.yml`, qui ouvre de **nouvelles** connexions | Évite le faux « tout va bien » dû aux connexions déjà établies | En place (procédure) |
+| Alerte `HoteInjoignable` (`up == 0` pendant 1 min) | Détection en 1 à 2 min au lieu d'un constat fortuit | En place |
+| Contrôle de cohérence en CI (inventaire ↔ cibles Prometheus) | Une cible oubliée ou mal adressée est refusée avant fusion | En place |
+
 ## Enseignements
 
 - **Ping OK ≠ service joignable** : ICMP et TCP/9100 sont filtrés séparément.
@@ -130,9 +148,5 @@ S06_15d_grafana_retour_normal_trou_visible.png, S06_15e_prometheus_up_linux01_0_
   données ressemble à « rien à signaler ».
 - Corriger par Ansible plutôt qu'à la main garantit que la correction est identique à la
   configuration documentée et qu'elle ne sera pas écrasée au prochain déploiement.
-- Prévention :
-  - contrôle de cohérence en CI (inventaire ↔ cibles Prometheus) ;
-  - `verification.yml` après toute modification du pare-feu (il ouvre de nouvelles connexions) ;
-  - lancement régulier de `linux.yml --check` pour détecter une dérive de configuration.
 
 Autres incidents diagnostiqués pendant le projet : [scénarios de panne Ansible de la séance 4](scenarios-pannes.md).
