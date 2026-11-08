@@ -1,0 +1,8 @@
+# Configuration ansible-lint (CI). Profil "production" = le plus exigeant.
+profile: production
+exclude_paths:
+  - .github/
+  - monitoring/
+skip_list:
+  - name[casing]          # noms de taches en francais, sans majuscule imposee
+offline: false

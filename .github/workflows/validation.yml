@@ -1,0 +1,81 @@
+# validation.yml - InfraReady (tache G) : validations automatiques a chaque push / pull request.
+# Le runner heberge par GitHub n'a AUCUNE route vers le labo prive 192.168.50.0/24 :
+# il valide le CODE (syntaxe, lint, coherence, secrets), il ne deploie rien sur les VM.
+name: Validation InfraReady
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:          # relance manuelle depuis l'onglet Actions
+
+permissions:
+  contents: read              # moindre privilege : le workflow ne peut rien ecrire dans le depot
+
+jobs:
+  ansible:
+    name: YAML, Ansible (syntaxe + lint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Installer les outils
+        run: pip install "ansible-core>=2.16,<2.18" ansible-lint yamllint pywinrm
+      - name: Installer les collections
+        run: ansible-galaxy collection install -r requirements.yml
+      - name: yamllint
+        run: yamllint .
+      - name: Inventaire lisible
+        run: ansible-inventory --graph
+      - name: Syntaxe de chaque playbook
+        run: |
+          for pb in playbooks/*.yml; do
+            echo "::group::$pb"
+            ansible-playbook "$pb" --syntax-check
+            echo "::endgroup::"
+          done
+      - name: ansible-lint (profil production)
+        run: ansible-lint playbooks/
+
+  supervision:
+    name: Prometheus, Grafana, coherence
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: promtool - configuration Prometheus
+        run: docker run --rm --entrypoint promtool -v "$PWD/monitoring:/m:ro" prom/prometheus:v2.45.0 check config --syntax-only /m/prometheus.yml
+      - name: promtool - regles d'alerte
+        run: docker run --rm --entrypoint promtool -v "$PWD/monitoring:/m:ro" prom/prometheus:v2.45.0 check rules /m/rules/alertes.yml
+      - name: Tableau de bord Grafana a jour (regenere = identique)
+        run: |
+          python3 scripts/outils/generer_dashboard.py
+          git diff --exit-code monitoring/dashboards/
+      - name: Coherence inventaire / supervision / documentation / secrets
+        run: python3 scripts/outils/controle_coherence.py
+
+  scripts:
+    name: Scripts Bash et PowerShell
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck scripts/linux/*.sh
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $r = Get-ChildItem -Recurse -Include *.ps1 | Invoke-ScriptAnalyzer -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost
+          $r | Format-Table -AutoSize
+          if ($r | Where-Object Severity -eq 'Error') { exit 1 }
+
+  secrets:
+    name: Recherche de secrets (gitleaks)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # tout l'historique : un secret supprime reste dans les anciens commits
+      - name: gitleaks
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 detect --source /repo --verbose --redact
