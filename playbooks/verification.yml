@@ -1,0 +1,140 @@
+---
+# verification.yml - InfraReady : controles fonctionnels apres deploiement ou maintenance.
+# Lecture seule (aucune tache "changed") : peut etre relance a volonte.
+# Repond a l'enseignement du scenario 3 (docs/scenarios-pannes.md) : un "changed=0" prouve la
+# stabilite, pas le bon fonctionnement. Ici on teste ce que voit reellement l'utilisateur.
+#
+#   ansible-playbook playbooks/verification.yml --limit supervision,linux -K
+#   ansible-playbook playbooks/verification.yml --limit windows -k
+
+- name: Verifications Linux
+  hosts: linux:supervision
+  become: true
+  tasks:
+    - name: Lire l'etat des services
+      ansible.builtin.service_facts:
+
+    - name: Services critiques actifs
+      ansible.builtin.assert:
+        that: ansible_facts.services[item ~ '.service'].state | default('absent') == 'running'
+        fail_msg: "{{ item }} n'est pas actif (journalctl -u {{ item }})"
+        success_msg: "{{ item }} actif"
+      loop: "{{ services_critiques }}"
+
+    - name: Remplissage des systemes de fichiers sous le seuil (%) - {{ seuil_disque_pct }}
+      ansible.builtin.assert:
+        that: (100 * (1 - item.size_available / item.size_total)) < seuil_disque_pct
+        fail_msg: "{{ item.mount }} rempli a {{ (100 * (1 - item.size_available / item.size_total)) | round(1) }} %"
+        success_msg: "{{ item.mount }} : {{ (100 * (1 - item.size_available / item.size_total)) | round(1) }} %"
+      loop: "{{ ansible_facts.mounts | selectattr('fstype', 'in', ['ext4', 'xfs']) | list }}"
+      loop_control:
+        label: "{{ item.mount }}"
+
+    - name: Resolution DNS du controleur de domaine
+      ansible.builtin.command:
+        argv: [getent, hosts, "WIN-DC01.{{ domaine }}"]
+      register: dns
+      changed_when: false
+      failed_when: "'192.168.50.10' not in dns.stdout"
+
+    - name: node_exporter expose des metriques
+      ansible.builtin.uri:
+        url: "http://localhost:{{ port_node_exporter }}/metrics"
+        return_content: true
+      register: metriques
+      failed_when: "'node_cpu_seconds_total' not in metriques.content"
+
+- name: Verifications du serveur web
+  hosts: linux
+  tasks:
+    - name: Le site repond en HTTP 200 avec le bon contenu
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}/"
+        return_content: true
+      register: page
+      failed_when: page.status != 200 or 'Bienvenue sur le serveur web InfraReady' not in page.content
+      delegate_to: localhost     # teste depuis OPS01, donc a travers le pare-feu de LINUX01
+      become: false
+
+- name: Verifications de la supervision
+  hosts: supervision
+  tasks:
+    - name: Prometheus est pret
+      ansible.builtin.uri:
+        url: "http://localhost:{{ port_prometheus }}/-/ready"
+
+    - name: Lire l'etat des cibles Prometheus
+      ansible.builtin.uri:
+        url: "http://localhost:{{ port_prometheus }}/api/v1/targets?state=active"
+        return_content: true
+      register: cibles
+
+    - name: Toutes les cibles sont collectees (health = up)
+      ansible.builtin.assert:
+        that: item.health == 'up'
+        fail_msg: "{{ item.labels.instance }} ({{ item.labels.job }}) : {{ item.lastError }}"
+        success_msg: "{{ item.labels.instance }} ({{ item.labels.job }}) : up"
+      loop: "{{ cibles.json.data.activeTargets }}"
+      loop_control:
+        label: "{{ item.labels.job }}/{{ item.labels.instance }}"
+
+    - name: Les regles d'alerte sont chargees
+      ansible.builtin.uri:
+        url: "http://localhost:{{ port_prometheus }}/api/v1/rules"
+        return_content: true
+      register: regles
+      failed_when: regles.json.data.groups | length == 0
+
+    - name: Grafana est en bonne sante (base de donnees joignable)
+      ansible.builtin.uri:
+        url: "http://localhost:{{ port_grafana }}/api/health"
+        return_content: true
+      register: grafana
+      failed_when: grafana.json.database != 'ok'
+
+- name: Verifications Windows
+  hosts: windows
+  tasks:
+    - name: Lire l'etat des services critiques
+      ansible.windows.win_service_info:
+        name: "{{ item }}"
+      loop: "{{ services_critiques }}"
+      register: services_win
+
+    - name: Services critiques demarres
+      ansible.builtin.assert:
+        that: item.services | length > 0 and item.services[0].state == 'started'
+        fail_msg: "{{ item.item }} absent ou arrete"
+        success_msg: "{{ item.item }} demarre"
+      loop: "{{ services_win.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Mesurer le remplissage du volume C
+      ansible.windows.win_powershell:
+        script: |
+          $d = Get-Volume -DriveLetter C
+          [math]::Round(100 * (1 - $d.SizeRemaining / $d.Size), 1)
+      register: remplissage_c
+      changed_when: false
+
+    - name: Remplissage de C sous le seuil (%) - {{ seuil_disque_pct }}
+      ansible.builtin.assert:
+        that: remplissage_c.output[0] | float < seuil_disque_pct
+        fail_msg: "C: rempli a {{ remplissage_c.output[0] }} %"
+        success_msg: "C: rempli a {{ remplissage_c.output[0] }} %"
+
+    - name: Resolution DNS de LINUX01 et OPS01 par le DC
+      ansible.windows.win_powershell:
+        script: |
+          'LINUX01','OPS01' | ForEach-Object { (Resolve-DnsName "$_.{{ domaine }}" -Type A -ErrorAction Stop).IPAddress }
+      register: dns_win
+      changed_when: false
+      failed_when: dns_win.error | length > 0 or dns_win.output | length != 2
+
+    - name: windows_exporter expose des metriques
+      ansible.windows.win_uri:
+        url: "http://localhost:{{ port_windows_exporter }}/metrics"
+        return_content: true
+      register: metriques_win
+      failed_when: "'windows_cpu_time_seconds_total' not in metriques_win.content"

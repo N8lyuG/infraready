@@ -1,0 +1,182 @@
+---
+# maintenance.yml - InfraReady (tache E) : maintenance controlee Linux + Windows.
+# Procedure complete et precautions : docs/maintenance.md (snapshot AVANT, NAT temporaire, etc.).
+#
+#   ansible-playbook playbooks/maintenance.yml --limit linux -K                     # MAJ Linux, sans redemarrage
+#   ansible-playbook playbooks/maintenance.yml --limit linux -K -e autoriser_redemarrage=true
+#   ansible-playbook playbooks/maintenance.yml --limit windows -k                   # RECHERCHE des MAJ seulement
+#   ansible-playbook playbooks/maintenance.yml --limit windows -k -e appliquer_maj_windows=true
+#
+# Garde-fous : controles AVANT (disque, services) qui bloquent la maintenance si l'etat est deja
+# degrade ; serial: 1 (une machine a la fois) ; aucun redemarrage sans -e autoriser_redemarrage=true ;
+# OPS01 n'est jamais redemarre par lui-meme (il porte Ansible et la supervision).
+
+- name: Maintenance Linux
+  hosts: linux:supervision
+  become: true
+  serial: 1
+  vars:
+    autoriser_redemarrage: false
+  tasks:
+    # ---------------------------------------------------------------- 1. Controles AVANT
+    - name: Lire l'etat des services
+      ansible.builtin.service_facts:
+
+    - name: Verifier que les services critiques tournent avant d'intervenir
+      ansible.builtin.assert:
+        that: ansible_facts.services[item ~ '.service'].state | default('absent') == 'running'
+        fail_msg: "{{ item }} n'est pas actif : diagnostiquer avant toute mise a jour (on ne met pas a jour un systeme deja en panne)"
+        success_msg: "{{ item }} actif"
+        quiet: true
+      loop: "{{ services_critiques }}"
+
+    - name: Verifier l'espace libre sur / avant mise a jour (Mo minimum) - {{ seuil_disque_min_maj_mo }}
+      ansible.builtin.assert:
+        that: (racine.size_available / 1048576) >= seuil_disque_min_maj_mo
+        fail_msg: "Espace insuffisant sur / : {{ (racine.size_available / 1048576) | int }} Mo libres"
+        success_msg: "/ : {{ (racine.size_available / 1048576) | int }} Mo libres"
+      vars:
+        racine: "{{ ansible_facts.mounts | selectattr('mount', 'equalto', '/') | first }}"
+
+    - name: Relever les erreurs du journal depuis le demarrage (lecture seule)
+      ansible.builtin.command:
+        argv: [journalctl, -p, err, -b, --no-pager, -n, "15", -o, short-iso]
+      register: journal_avant
+      changed_when: false
+
+    - name: Afficher les erreurs du journal
+      ansible.builtin.debug:
+        var: journal_avant.stdout_lines
+
+    # ---------------------------------------------------------------- 2. Mise a jour
+    - name: Lister les paquets a mettre a jour
+      ansible.builtin.command:
+        argv: [apt, list, --upgradable]
+      register: liste_maj
+      changed_when: false
+
+    - name: Afficher les paquets concernes
+      ansible.builtin.debug:
+        msg: "{{ liste_maj.stdout_lines | reject('match', '^(Listing|En train)') | list }}"
+
+    # "safe" : met a jour sans supprimer de paquet (contrairement a "dist"), donc sans risque
+    # de retirer un composant dont un service depend.
+    - name: Appliquer les mises a jour (mode safe)
+      ansible.builtin.apt:
+        upgrade: safe
+        update_cache: true
+        cache_valid_time: 3600
+      register: resultat_maj
+
+    - name: Retirer les dependances devenues inutiles
+      ansible.builtin.apt:
+        autoremove: true
+        autoclean: true
+
+    # ---------------------------------------------------------------- 3. Redemarrage encadre
+    - name: Verifier si un redemarrage est requis (noyau, libc...)
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: redemarrage_requis
+
+    - name: Signaler un redemarrage requis mais non autorise
+      ansible.builtin.debug:
+        msg: "REDEMARRAGE REQUIS sur {{ inventory_hostname }} : relancer avec -e autoriser_redemarrage=true pendant une fenetre de maintenance."
+      when:
+        - redemarrage_requis.stat.exists
+        - not (autoriser_redemarrage | bool) or inventory_hostname in groups['supervision']
+
+    - name: Redemarrer (fenetre de maintenance autorisee)
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        msg: "Redemarrage de maintenance InfraReady (Ansible)"
+      when:
+        - redemarrage_requis.stat.exists
+        - autoriser_redemarrage | bool
+        - inventory_hostname not in groups['supervision']
+
+    # ---------------------------------------------------------------- 4. Controles APRES
+    - name: Relire l'etat des services
+      ansible.builtin.service_facts:
+
+    - name: Verifier que les services critiques tournent toujours
+      ansible.builtin.assert:
+        that: ansible_facts.services[item ~ '.service'].state | default('absent') == 'running'
+        fail_msg: "{{ item }} ne tourne plus apres la maintenance : voir journalctl -u {{ item }}"
+        quiet: true
+      loop: "{{ services_critiques }}"
+
+    - name: Tracer l'intervention dans le journal de maintenance local
+      ansible.builtin.lineinfile:
+        path: /var/log/infraready-maintenance.log
+        line: >-
+          {{ now(utc=false, fmt='%Y-%m-%d %H:%M:%S') }} maintenance Ansible -
+          mises a jour {{ 'appliquees' if resultat_maj.changed else 'aucune' }} -
+          redemarrage requis {{ 'oui' if redemarrage_requis.stat.exists else 'non' }}
+        create: true
+        owner: root
+        group: adm
+        mode: "0640"
+
+- name: Maintenance Windows
+  hosts: windows
+  vars:
+    appliquer_maj_windows: false
+    categories_maj: [SecurityUpdates, CriticalUpdates, UpdateRollups, DefinitionUpdates]
+  tasks:
+    # ---------------------------------------------------------------- 1. Controles AVANT
+    - name: Lire l'etat des services critiques
+      ansible.windows.win_service_info:
+        name: "{{ item }}"
+      loop: "{{ services_critiques }}"
+      register: services_win
+
+    - name: Verifier que les services critiques tournent
+      ansible.builtin.assert:
+        that: item.services | length > 0 and item.services[0].state == 'started'
+        fail_msg: "{{ item.item }} absent ou arrete sur {{ inventory_hostname }}"
+        quiet: true
+      loop: "{{ services_win.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Mesurer l'espace libre sur le volume C
+      ansible.windows.win_powershell:
+        script: |
+          $d = Get-Volume -DriveLetter C
+          [math]::Round($d.SizeRemaining / 1MB)
+      register: libre_c
+      changed_when: false
+
+    - name: Verifier l'espace libre sur le volume C (minimum 5 Go pour Windows Update)
+      ansible.builtin.assert:
+        that: libre_c.output[0] | int >= 5120
+        fail_msg: "C: : {{ libre_c.output[0] }} Mo libres, insuffisant pour une mise a jour"
+        success_msg: "C: : {{ libre_c.output[0] }} Mo libres"
+
+    # ---------------------------------------------------------------- 2. Windows Update
+    # Mecanisme natif (agent Windows Update). WIN-DC01 n'a pas d'acces Internet en exploitation :
+    # sans la carte NAT temporaire la recherche echoue ; le "rescue" l'explique au lieu de planter.
+    - name: Windows Update
+      block:
+        - name: Rechercher ou installer les mises a jour sans redemarrer - mode {{ 'installation' if appliquer_maj_windows | bool else 'recherche' }}
+          ansible.windows.win_updates:
+            category_names: "{{ categories_maj }}"
+            state: "{{ 'installed' if appliquer_maj_windows | bool else 'searched' }}"
+            reboot: false
+            log_path: C:\InfraReady\windows-update.log
+          register: maj_win
+
+        - name: Resume Windows Update
+          ansible.builtin.debug:
+            msg:
+              - "Mises a jour trouvees : {{ maj_win.found_update_count | default(0) }}"
+              - "Installees : {{ maj_win.installed_update_count | default(0) }}"
+              - "Titres : {{ maj_win.updates | default({}) | dict2items | map(attribute='value.title') | list }}"
+              - "Redemarrage requis : {{ maj_win.reboot_required | default(false) }} (a planifier, jamais automatique sur le DC)"
+      rescue:
+        - name: Expliquer l'echec de Windows Update
+          ansible.builtin.debug:
+            msg: >-
+              Windows Update injoignable depuis {{ inventory_hostname }} (pas d'acces Internet).
+              Procedure : snapshot, carte NAT temporaire, relancer, retirer la NAT (docs/maintenance.md).
