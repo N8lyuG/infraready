@@ -153,8 +153,10 @@ SC="$HOME/infraready-scenarios"
 SITE=http://192.168.50.20/
 LNXS="${LNX[*]}"   # forme texte pour les commandes passees a bash -c
 
-pannes() {
-    rm -rf "$SC" && cp -r . "$SC"
+copie_jetable() { rm -rf "$SC" && cp -r . "$SC"; }
+
+sc4() {
+    copie_jetable
     cat > "$SC/playbooks/sc4.yml" <<'EOF'
 ---
 - name: Scenario 4 - en-tete HTTP de version (fichier de configuration Nginx)
@@ -188,22 +190,32 @@ EOF
     etape S04_29g_sc4_verification bash -c "$entete"
     etape S04_29h_sc4_nettoyage bash -c "${ADHOC_LNX[*]} -m ansible.builtin.file -a 'path=/etc/nginx/conf.d/infraready-version.conf state=absent' && ${ADHOC_LNX[*]} -m ansible.builtin.service -a 'name=nginx state=reloaded' && $entete"
 
-    # --- Scenario 5 : service Nginx arrete
+}
+
+sc5() {   # service Nginx arrete
     etape S04_30a_sc5_injection "${ADHOC_LNX[@]}" -m ansible.builtin.service -a 'name=nginx state=stopped'
     echo "Attente de 75 s : alerte ServiceLinuxArrete (for: 30s)..."; sleep 75
     etape S04_30b_sc5_symptome bash -c "$(declare -f alertes); date '+%T'; curl -sS -m 5 $SITE; echo \"code curl : \$?\"; alertes"
     etape S04_30c_sc5_diagnostic "${ADHOC_LNX[@]}" -m ansible.builtin.shell -a 'systemctl is-active nginx; systemctl status nginx --no-pager -l | head -4; echo "--- journal :"; journalctl -u nginx -n 4 --no-pager -o short-iso; echo "--- ports en ecoute :"; ss -ltn | grep -E ":80 " || echo "rien n ecoute sur le port 80"'
     echo "PAUSE 60 s pour les captures (alerte ServiceLinuxArrete)..."; sleep 60
+}
+
+sc5_correction() {
     etape S04_30d_sc5_correction "${AP[@]}" playbooks/linux.yml "${LNX[@]}"
     echo "Attente de 60 s : retour de l'alerte a l'etat inactif..."; sleep 60
     etape S04_30e_sc5_retour_normal bash -c "$(declare -f alertes); date '+%T'; curl -s -o /dev/null -w 'site : HTTP %{http_code}\n' $SITE; alertes"
     etape S04_30f_sc5_2e_passage "${AP[@]}" playbooks/linux.yml "${LNX[@]}"
 
-    # --- Scenario 6 : le controle fonctionnel detecte la panne latente du scenario 3
+}
+
+sc6() {   # le controle fonctionnel detecte la panne latente du scenario 3
+    copie_jetable
     etape S04_31a_sc6_defaut_detecte bash -c "cd $SC && cp playbooks/linux.yml playbooks/linux.yml.ref && sed -i 's#dest: /var/www/html/index.html#dest: /tmp/ir-index.html#' playbooks/linux.yml && { diff playbooks/linux.yml.ref playbooks/linux.yml; ${AP[*]} playbooks/linux.yml $LNXS -e 'site_message=\"Version 2 du site InfraReady\"' || echo \"ECHEC ATTENDU : le controle fonctionnel a detecte la panne (code \$?)\"; }"
     etape S04_31b_sc6_correction bash -c "cd $SC && cp playbooks/linux.yml.ref playbooks/linux.yml && diff playbooks/linux.yml.ref playbooks/linux.yml && ${AP[*]} playbooks/linux.yml $LNXS && ${ADHOC_LNX[*]} -m ansible.builtin.file -a 'path=/tmp/ir-index.html state=absent'"
     rm -rf "$SC"
 }
+
+pannes() { sc4; sc5; sc5_correction; sc6; }
 
 fermeture_nat() {   # retire la configuration netplan de la carte NAT (deja deconnectee dans VMware)
     etape S06_16c_netplan_linux01 "${ADHOC_LNX[@]}" -m ansible.builtin.shell -a 'rm -fv /etc/netplan/90-nat-temporaire.yaml && netplan generate && netplan apply && ls /etc/netplan && ip -br address && ip route'
@@ -220,7 +232,7 @@ redemarrage() {     # noyau mis a jour pendant la maintenance : redemarrage enca
 besoin_secrets "$@"
 for e in "$@"; do
     case $e in
-        prerequis|linux|monitoring|tableau|verification|maintenance|incident|pannes|fermeture_nat|redemarrage) $e ;;
+        prerequis|linux|monitoring|tableau|verification|maintenance|incident|pannes|sc4|sc5|sc5_correction|sc6|fermeture_nat|redemarrage) $e ;;
         tout) prerequis; linux; monitoring; verification; maintenance ;;
         *) echo "etape inconnue : $e"; exit 1 ;;
     esac
