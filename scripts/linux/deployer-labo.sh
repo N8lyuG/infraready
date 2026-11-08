@@ -120,6 +120,10 @@ print(f"{len(a)} alerte(s) active(s)")
 incident() {
     etape S06_10_incident_etat_initial bash -c "$(declare -f alertes); alertes; curl -s -o /dev/null -w 'collecte LINUX01 : HTTP %{http_code}\n' -m 5 http://192.168.50.20:9100/metrics"
     etape S06_11_incident_injection "${ADHOC_LNX[@]}" -m ansible.builtin.command -a 'ufw delete allow from 192.168.50.30 to any port 9100 proto tcp'
+    # ufw est un pare-feu a etats : la connexion keep-alive deja ouverte par Prometheus reste
+    # autorisee (ESTABLISHED) malgre la suppression de la regle. On la coupe, comme le ferait un
+    # redemarrage ou un rechargement du pare-feu ; la reconnexion est alors bloquee.
+    etape S06_11b_incident_coupure_connexions "${ADHOC_LNX[@]}" -m ansible.builtin.shell -a 'ss -tn state established "( sport = :9100 )"; ss -K -tn state established "( sport = :9100 )" dst 192.168.50.30 >/dev/null; echo "--- apres coupure :"; ss -tn state established "( sport = :9100 )"'
     echo "Attente de 100 s : Prometheus doit constater l'absence de metriques (alerte for: 1m)..."; sleep 100
     etape S06_12_incident_symptome bash -c "$(declare -f alertes); date '+%T'; alertes"
     etape S06_13a_test_ping ping -c 2 192.168.50.20
