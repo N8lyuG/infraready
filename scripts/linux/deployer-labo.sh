@@ -61,11 +61,11 @@ etape() {
     if (( rc != 0 )); then echo "ARRET : etape $nom en echec (journal : $journal)"; exit "$rc"; fi
 }
 
-AP=(ansible-playbook)
+AP=(ansible-playbook --timeout 30)   # 30 s : laisse a sudo le temps de repondre sur une VM chargee
 OPS=(--limit supervision --become-password-file "$SECRETS/ops01")
 LNX=(--limit linux --become-password-file "$SECRETS/linux01")
 WIN=(--limit windows --connection-password-file "$SECRETS/winrm")
-ADHOC_LNX=(ansible linux -b --become-password-file "$SECRETS/linux01")
+ADHOC_LNX=(ansible linux -b --timeout 30 --become-password-file "$SECRETS/linux01")
 
 prerequis() {
     etape S05_00_ops01_reseau_nat bash -c 'ip -br address; ip route; curl -sI https://apt.grafana.com | head -1'
