@@ -1,0 +1,33 @@
+# prometheus.yml - InfraReady (tache F). Deploye sur OPS01 dans /etc/prometheus/prometheus.yml
+# par playbooks/monitoring.yml. Modele "pull" : Prometheus va LIRE les metriques exposees en HTTP
+# par chaque collecteur ; les serveurs ne poussent rien.
+global:
+  scrape_interval: 15s          # frequence de collecte
+  evaluation_interval: 15s      # frequence d'evaluation des regles d'alerte
+  external_labels:
+    labo: infraready
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # Prometheus se surveille lui-meme (OPS01, local)
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels: {instance: OPS01, os: linux, role: supervision}
+
+  # Collecteur Linux node_exporter (port 9100). Le label "instance" remplace IP:port par le nom
+  # de la machine : tableaux de bord et alertes plus lisibles.
+  - job_name: node
+    static_configs:
+      - targets: ["192.168.50.20:9100"]
+        labels: {instance: LINUX01, os: linux, role: web}
+      - targets: ["localhost:9100"]
+        labels: {instance: OPS01, os: linux, role: supervision}
+
+  # Collecteur Windows windows_exporter (port 9182)
+  - job_name: windows
+    static_configs:
+      - targets: ["192.168.50.10:9182"]
+        labels: {instance: WIN-DC01, os: windows, role: dc}

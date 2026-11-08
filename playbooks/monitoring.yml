@@ -1,0 +1,255 @@
+---
+# monitoring.yml - InfraReady (tache F) : collecteurs Linux/Windows, Prometheus et Grafana.
+#
+# Prerequis : carte NAT temporaire sur OPS01 et LINUX01 (paquets apt, depot Grafana, MSI
+# windows_exporter telecharge PAR OPS01 puis copie sur WIN-DC01 qui reste sans Internet).
+# Snapshot "03-avant-supervision" des 3 VM avant le premier lancement.
+#
+# Lancement depuis la racine du depot sur OPS01 :
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-playbook playbooks/monitoring.yml --syntax-check
+#   ansible-playbook playbooks/monitoring.yml --limit supervision -K   # sudo de l'utilisateur local OPS01
+#   ansible-playbook playbooks/monitoring.yml --limit linux -K         # sudo du compte ansible sur LINUX01
+#   ansible-playbook playbooks/monitoring.yml --limit windows -k       # mot de passe svc_ansible (WinRM)
+# (--limit separe les plays car les mots de passe sudo different d'une machine a l'autre.)
+
+# ------------------------------------------------------------------------------------------
+- name: Collecteur Linux node_exporter
+  hosts: linux:supervision
+  become: true
+  tasks:
+    - name: Installer node_exporter (paquet Ubuntu)
+      ansible.builtin.apt:
+        name: prometheus-node-exporter
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Le collecteur systemd (desactive par defaut) expose l'etat des services : c'est lui qui
+    # permet de voir "nginx arrete" dans Grafana et de declencher l'alerte ServiceLinuxArrete.
+    - name: Activer le collecteur systemd pour les services critiques
+      ansible.builtin.copy:
+        dest: /etc/default/prometheus-node-exporter
+        content: |
+          # Gere par Ansible (playbooks/monitoring.yml) - ne pas modifier a la main.
+          ARGS="--collector.systemd --collector.systemd.unit-include=(nginx|ssh|prometheus|grafana-server)[.]service"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Redemarrer node_exporter
+
+    - name: Demarrer et activer node_exporter
+      ansible.builtin.service:
+        name: prometheus-node-exporter
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Redemarrer node_exporter
+      ansible.builtin.service:
+        name: prometheus-node-exporter
+        state: restarted
+
+# ------------------------------------------------------------------------------------------
+- name: Collecteur Windows windows_exporter
+  hosts: windows
+  vars:
+    we_version: "0.32.1"
+    we_msi: "windows_exporter-{{ we_version }}-amd64.msi"
+    we_url: "https://github.com/prometheus-community/windows_exporter/releases/download/v{{ we_version }}"
+    dossier_paquets: 'C:\InfraReady\Paquets'
+  tasks:
+    # Telechargement sur OPS01 (controleur) avec verification SHA-256 contre la liste publiee
+    # par le projet : un fichier altere ou tronque est refuse avant d'atteindre le DC.
+    - name: Telecharger le MSI sur OPS01 et verifier son empreinte
+      ansible.builtin.get_url:
+        url: "{{ we_url }}/{{ we_msi }}"
+        dest: "{{ playbook_dir }}/files/{{ we_msi }}"
+        checksum: "sha256:{{ we_url }}/sha256sums.txt"
+        mode: "0644"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Creer le dossier des paquets
+      ansible.windows.win_file:
+        path: "{{ dossier_paquets }}"
+        state: directory
+
+    - name: Copier le MSI sur WIN-DC01
+      ansible.windows.win_copy:
+        src: "files/{{ we_msi }}"
+        dest: '{{ dossier_paquets }}\{{ we_msi }}'
+
+    # win_package lit le ProductCode du MSI : si la version est deja installee -> "ok" (idempotent).
+    # Collecteurs par defaut (cpu, logical_disk, memory, net, os, physical_disk, service, system).
+    - name: Installer windows_exporter (service Windows, port 9182)
+      ansible.windows.win_package:
+        path: '{{ dossier_paquets }}\{{ we_msi }}'
+        arguments: "LISTEN_PORT={{ port_windows_exporter }}"
+        state: present
+
+    - name: Garantir que le service windows_exporter est demarre et automatique
+      ansible.windows.win_service:
+        name: windows_exporter
+        state: started
+        start_mode: auto
+
+    # Regle explicite et restreinte : seul OPS01 (Prometheus) peut lire les metriques.
+    - name: Autoriser le port 9182 depuis OPS01 uniquement
+      community.windows.win_firewall_rule:
+        name: "LAB - windows_exporter depuis OPS01"
+        localport: "{{ port_windows_exporter }}"
+        remoteip: "{{ ip_ops01 }}"
+        protocol: tcp
+        direction: in
+        action: allow
+        profiles: [domain, private]
+        state: present
+        enabled: true
+
+# ------------------------------------------------------------------------------------------
+- name: Prometheus et Grafana sur OPS01
+  hosts: supervision
+  become: true
+  vars:
+    racine_depot: "{{ playbook_dir }}/.."
+  tasks:
+    - name: Installer Prometheus (paquet Ubuntu)
+      ansible.builtin.apt:
+        name: prometheus
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Creer le dossier des regles d'alerte
+      ansible.builtin.file:
+        path: /etc/prometheus/rules
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # validate : promtool controle le fichier AVANT de remplacer l'ancien ; une erreur de
+    # syntaxe ne peut donc jamais casser le Prometheus en service.
+    - name: Deployer les regles d'alerte
+      ansible.builtin.copy:
+        src: "{{ racine_depot }}/monitoring/rules/alertes.yml"
+        dest: /etc/prometheus/rules/alertes.yml
+        owner: root
+        group: root
+        mode: "0644"
+        validate: promtool check rules %s
+      notify: Recharger Prometheus
+
+    - name: Deployer la configuration Prometheus
+      ansible.builtin.copy:
+        src: "{{ racine_depot }}/monitoring/prometheus.yml"
+        dest: /etc/prometheus/prometheus.yml
+        owner: root
+        group: root
+        mode: "0644"
+        validate: promtool check config %s
+      notify: Recharger Prometheus
+
+    - name: Demarrer et activer Prometheus
+      ansible.builtin.service:
+        name: prometheus
+        state: started
+        enabled: true
+
+    # --- Grafana (depot officiel, cle de signature verifiee par apt) ---------------------
+    - name: Installer les prerequis du depot Grafana
+      ansible.builtin.apt:
+        name: [apt-transport-https, ca-certificates]
+        state: present
+
+    - name: Recuperer la cle de signature du depot Grafana
+      ansible.builtin.get_url:
+        url: https://apt.grafana.com/gpg.key
+        dest: /etc/apt/keyrings/grafana.asc
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Declarer le depot Grafana (signed-by = cle limitee a ce seul depot)
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main"
+        filename: grafana
+        state: present
+
+    - name: Installer Grafana
+      ansible.builtin.apt:
+        name: grafana
+        state: present
+        update_cache: true
+
+    - name: Deployer la source de donnees Prometheus
+      ansible.builtin.copy:
+        src: "{{ racine_depot }}/monitoring/grafana/provisioning/datasources/prometheus.yml"
+        dest: /etc/grafana/provisioning/datasources/prometheus.yml
+        owner: root
+        group: grafana
+        mode: "0640"
+      notify: Redemarrer Grafana
+
+    - name: Deployer le fournisseur de tableaux de bord
+      ansible.builtin.copy:
+        src: "{{ racine_depot }}/monitoring/grafana/provisioning/dashboards/infraready.yml"
+        dest: /etc/grafana/provisioning/dashboards/infraready.yml
+        owner: root
+        group: grafana
+        mode: "0640"
+      notify: Redemarrer Grafana
+
+    - name: Creer le dossier des tableaux de bord
+      ansible.builtin.file:
+        path: /var/lib/grafana/dashboards/infraready
+        state: directory
+        owner: grafana
+        group: grafana
+        mode: "0755"
+
+    - name: Deployer le tableau de bord InfraReady
+      ansible.builtin.copy:
+        src: "{{ racine_depot }}/monitoring/dashboards/infraready.json"
+        dest: /var/lib/grafana/dashboards/infraready/infraready.json
+        owner: grafana
+        group: grafana
+        mode: "0644"
+
+    - name: Demarrer et activer Grafana
+      ansible.builtin.service:
+        name: grafana-server
+        state: started
+        enabled: true
+
+    # --- Pare-feu OPS01 ------------------------------------------------------------------
+    - name: Ouvrir SSH, Prometheus et Grafana au reseau du laboratoire uniquement
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port | string }}"
+        proto: tcp
+        src: "{{ reseau_labo }}"
+        comment: "{{ item.motif }}"
+      loop:
+        - {port: 22, motif: "SSH administration labo"}
+        - {port: "{{ port_prometheus }}", motif: "Prometheus"}
+        - {port: "{{ port_grafana }}", motif: "Grafana"}
+
+    - name: Activer ufw avec refus par defaut en entree
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+        logging: "low"
+
+  handlers:
+    - name: Recharger Prometheus
+      ansible.builtin.service:
+        name: prometheus
+        state: reloaded
+
+    - name: Redemarrer Grafana
+      ansible.builtin.service:
+        name: grafana-server
+        state: restarted

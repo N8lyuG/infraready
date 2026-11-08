@@ -1,0 +1,601 @@
+{
+  "uid": "infraready-labo",
+  "title": "InfraReady - etat du laboratoire",
+  "description": "CPU, memoire, stockage et disponibilite de LINUX01, OPS01 et WIN-DC01 (source : Prometheus sur OPS01).",
+  "tags": [
+    "infraready",
+    "linux",
+    "windows"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Disponibilite des collecteurs (up)",
+      "description": "Metrique 'up' produite par Prometheus lui-meme : 1 si la derniere collecte a reussi.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-infraready"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "up{job=~\"node|windows\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "HORS SERVICE",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "EN SERVICE",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Services critiques",
+      "description": "Linux : collecteur systemd de node_exporter. Windows : collecteur service de windows_exporter.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-infraready"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "node_systemd_unit_state{state=\"active\", name=~\"(nginx|ssh|prometheus|grafana-server)[.]service\"}",
+          "legendFormat": "{{instance}} {{name}}",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "windows_service_state{state=\"running\", service=~\"(?i)(dns|ntds|netlogon|winrm)\"}",
+          "legendFormat": "{{instance}} {{service}}",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "HORS SERVICE",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "EN SERVICE",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "CPU utilise (%)",
+      "description": "100 - temps idle. Seuil d'alerte CpuEleve : 85 % pendant 5 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-infraready"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[2m])))",
+          "legendFormat": "{{instance}}",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "100 * (1 - avg by (instance) (rate(windows_cpu_time_seconds_total{mode=\"idle\"}[2m])))",
+          "legendFormat": "{{instance}}",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line+area"
+            },
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Memoire utilisee (%)",
+      "description": "Linux : MemAvailable (cache recuperable deduit). Seuil d'alerte : 90 %.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-infraready"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+          "legendFormat": "{{instance}}",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "100 * (1 - windows_memory_available_bytes / windows_memory_physical_total_bytes)",
+          "legendFormat": "{{instance}}",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line+area"
+            },
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Stockage utilise (%)",
+      "description": "Seuil d'alerte DisqueLinux/WindowsPresquePlein : 80 % pendant 2 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-infraready"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "100 * (1 - node_filesystem_avail_bytes{fstype=~\"ext4|xfs\"} / node_filesystem_size_bytes{fstype=~\"ext4|xfs\"})",
+          "legendFormat": "{{instance}} {{mountpoint}}",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "100 * (1 - windows_logical_disk_free_bytes{volume=~\"[A-Z]:\"} / windows_logical_disk_size_bytes{volume=~\"[A-Z]:\"})",
+          "legendFormat": "{{instance}} {{volume}}",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line+area"
+            },
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "bargauge",
+      "title": "Remplissage des volumes (seuil 80 %)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-infraready"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "100 * (1 - node_filesystem_avail_bytes{fstype=~\"ext4|xfs\"} / node_filesystem_size_bytes{fstype=~\"ext4|xfs\"})",
+          "legendFormat": "{{instance}} {{mountpoint}}",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "100 * (1 - windows_logical_disk_free_bytes{volume=~\"[A-Z]:\"} / windows_logical_disk_size_bytes{volume=~\"[A-Z]:\"})",
+          "legendFormat": "{{instance}} {{volume}}",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Duree depuis le dernier demarrage",
+      "description": "Un redemarrage non planifie se voit ici (valeur remise a zero).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-infraready"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "time() - node_boot_time_seconds",
+          "legendFormat": "{{instance}}",
+          "refId": "A",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-infraready"
+          },
+          "expr": "time() - windows_system_boot_time_timestamp",
+          "legendFormat": "{{instance}}",
+          "refId": "B",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "alertlist",
+      "title": "Alertes Prometheus",
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 5
+      },
+      "options": {
+        "alertInstanceLabelFilter": "",
+        "dashboardAlerts": false,
+        "groupMode": "default",
+        "maxItems": 10,
+        "sortOrder": 1,
+        "stateFilter": {
+          "firing": true,
+          "pending": true
+        },
+        "viewMode": "list",
+        "datasource": "Prometheus"
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

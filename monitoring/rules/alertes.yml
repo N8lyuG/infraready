@@ -1,0 +1,65 @@
+# alertes.yml - seuils InfraReady (tache F). Visibles dans Prometheus > Alerts (etats inactive ->
+# pending -> firing). "for" = duree pendant laquelle la condition doit rester vraie : evite de
+# declencher sur un pic isole (faux positif).
+groups:
+  - name: disponibilite
+    rules:
+      - alert: HoteInjoignable
+        expr: up == 0
+        for: 1m
+        labels: {severity: critique}
+        annotations:
+          summary: "{{ $labels.instance }} ne repond plus ({{ $labels.job }})"
+          description: "Collecte en echec depuis 1 min : machine eteinte, collecteur arrete ou pare-feu."
+
+      - alert: ServiceLinuxArrete
+        expr: node_systemd_unit_state{state="active", name=~"(nginx|ssh|prometheus|grafana-server)[.]service"} == 0
+        for: 30s
+        labels: {severity: critique}
+        annotations:
+          summary: "{{ $labels.name }} n'est plus actif sur {{ $labels.instance }}"
+
+      - alert: ServiceWindowsArrete
+        expr: windows_service_state{state="running", service=~"(?i)(dns|ntds|netlogon|winrm)"} == 0
+        for: 30s
+        labels: {severity: critique}
+        annotations:
+          summary: "Service {{ $labels.service }} arrete sur {{ $labels.instance }}"
+
+  - name: ressources
+    rules:
+      - alert: DisqueLinuxPresquePlein
+        expr: |
+          100 * (1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"}) > 80
+        for: 2m
+        labels: {severity: avertissement}
+        annotations:
+          summary: "{{ $labels.mountpoint }} rempli a {{ $value | printf \"%.0f\" }} % sur {{ $labels.instance }}"
+
+      - alert: DisqueWindowsPresquePlein
+        expr: |
+          100 * (1 - windows_logical_disk_free_bytes{volume=~"[A-Z]:"} / windows_logical_disk_size_bytes{volume=~"[A-Z]:"}) > 80
+        for: 2m
+        labels: {severity: avertissement}
+        annotations:
+          summary: "{{ $labels.volume }} rempli a {{ $value | printf \"%.0f\" }} % sur {{ $labels.instance }}"
+
+      - alert: CpuEleve
+        expr: |
+          100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m]))) > 85
+          or
+          100 * (1 - avg by (instance) (rate(windows_cpu_time_seconds_total{mode="idle"}[2m]))) > 85
+        for: 5m
+        labels: {severity: avertissement}
+        annotations:
+          summary: "CPU a {{ $value | printf \"%.0f\" }} % sur {{ $labels.instance }} depuis 5 min"
+
+      - alert: MemoireSaturee
+        expr: |
+          100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 90
+          or
+          100 * (1 - windows_memory_available_bytes / windows_memory_physical_total_bytes) > 90
+        for: 5m
+        labels: {severity: avertissement}
+        annotations:
+          summary: "Memoire utilisee a {{ $value | printf \"%.0f\" }} % sur {{ $labels.instance }}"

@@ -1,0 +1,10 @@
+# Source de donnees Grafana declaree "as code" : recreee a l'identique a chaque deploiement.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus-infraready
+    type: prometheus
+    access: proxy                 # Grafana (serveur) interroge Prometheus, pas le navigateur
+    url: http://localhost:9090
+    isDefault: true
+    editable: false
