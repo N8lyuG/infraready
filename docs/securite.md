@@ -50,6 +50,46 @@ Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4720,4727,4728,4731,4732,
 | Windows (WIN-DC01) | WinRM 5985 (profil réseau Domain) | comptes du domaine autorisés | Réseau labo uniquement |
 | Ping vers le DC | ICMPv4 echo | — | Règle « LAB - ICMPv4 echo depuis 192.168.50.0/24 » |
 
-## 3. Secrets
+## 3. Filtrage réseau (moindre privilège réseau)
 
-Aucun mot de passe, clé privée ni jeton dans le dépôt. Les secrets (Administrator, DSRM, comptes Linux, passphrase de la clé SSH, mot de passe des comptes de test) sont conservés dans un gestionnaire de mots de passe ; Ansible Vault sera utilisé pour les variables sensibles (S4/S7).
+Politique : **tout refuser en entrée, puis n'ouvrir que ce qu'un flux documenté exige**, et seulement depuis la source qui en a besoin. Règles posées par Ansible (`linux.yml`, `monitoring.yml`), donc reproductibles et vérifiables.
+
+| Machine | Port | Source autorisée | Motif | Posée par |
+|---|---|---|---|---|
+| LINUX01 | 22/tcp | 192.168.50.0/24 | SSH administration + Ansible | `linux.yml` (ufw) |
+| LINUX01 | 80/tcp | 192.168.50.0/24 | Site web | `linux.yml` (ufw) |
+| LINUX01 | 9100/tcp | **192.168.50.30 seul** | Collecte Prometheus | `linux.yml` (ufw) |
+| OPS01 | 22, 9090, 3000/tcp | 192.168.50.0/24 | SSH, Prometheus, Grafana | `monitoring.yml` (ufw) |
+| OPS01 | 9100/tcp | — (non ouvert) | node_exporter lu en local (`localhost`) | — |
+| WIN-DC01 | 9182/tcp | **192.168.50.30 seul** | Collecte Prometheus | `monitoring.yml` (« LAB - windows_exporter depuis OPS01 ») |
+| WIN-DC01 | 53, 88, 389, 445, 5985… | profil Domaine | Services AD/DNS/WinRM | rôles Windows |
+
+- `ufw` est activé **après** l'ajout de la règle SSH : sinon Ansible se couperait lui-même l'accès.
+- `logging low` : les paquets refusés sont tracés dans `/var/log/ufw.log` (`[UFW BLOCK]`), ce qui sert au diagnostic (voir [incident.md](incident.md)).
+- Les collecteurs exposent des informations sur le système (versions, services, disques) : ils ne sont joignables que par Prometheus.
+- Grafana : compte `admin` dont le mot de passe par défaut est changé à la première connexion ; inscription libre désactivée (défaut) ; tableaux de bord en lecture seule (`allowUiUpdates: false`).
+
+## 4. Sécurité de la chaîne d'automatisation
+
+| Mesure | Mise en œuvre |
+|---|---|
+| Vérification des clés d'hôte SSH | `host_key_checking = True` (`ansible.cfg`) : un serveur usurpé est refusé |
+| Paquets vérifiés | apt vérifie les signatures (dépôt Grafana limité à sa propre clé via `signed-by`) ; MSI windows_exporter contrôlé par **SHA-256** avant copie sur le DC |
+| Validation avant remplacement | `promtool check config/rules` en `validate` : une config invalide ne remplace jamais celle en service |
+| CI en moindre privilège | `permissions: contents: read` : le workflow ne peut rien écrire dans le dépôt |
+| Pas d'accès CI au labo | runner hébergé GitHub sans route vers 192.168.50.0/24, aucun secret du labo dans GitHub |
+| Détection de secrets | `gitleaks` sur **tout l'historique** à chaque push + motifs vérifiés par `controle_coherence.py` |
+| Traçabilité | chaque changement = un commit Git expliqué ; maintenance tracée dans `/var/log/infraready-maintenance.log` |
+
+## 5. Secrets
+
+Aucun mot de passe, clé privée ni jeton dans le dépôt (`.gitignore` exclut clés, fichiers Vault et MSI). Les secrets (Administrator, DSRM, comptes Linux, passphrase de la clé SSH, `svc_ansible`, mot de passe des comptes de test, admin Grafana) sont conservés dans un gestionnaire de mots de passe et **saisis à l'exécution** (`-K` sudo, `-k` WinRM).
+
+Si une variable sensible devait être stockée (ex. mot de passe Grafana), elle le serait chiffrée avec Ansible Vault :
+
+```bash
+ansible-vault create inventory/group_vars/supervision/vault.yml   # chiffré AES-256
+ansible-playbook playbooks/monitoring.yml --ask-vault-pass
+```
+
+Les captures de preuves sont relues avant publication : aucun mot de passe ni jeton visible.
