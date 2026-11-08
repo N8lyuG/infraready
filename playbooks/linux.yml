@@ -72,6 +72,30 @@
         direction: incoming
         logging: "low"              # paquets refuses traces dans /var/log/ufw.log (diagnostic)
 
+    # --- Controle fonctionnel (scenario 6 de S4) -------------------------------------------
+    # "changed=0" prouve la stabilite, pas que le site sert le bon contenu (scenario 3 : page
+    # deployee au mauvais chemin, Ansible vert). On verifie donc le resultat COMME UN UTILISATEUR :
+    # requete HTTP depuis OPS01 (a travers le pare-feu) et presence du message attendu.
+    - name: Appliquer les handlers en attente avant le controle
+      ansible.builtin.meta: flush_handlers
+
+    - name: Controle fonctionnel - recuperer la page depuis OPS01
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}/"
+        return_content: true
+        status_code: 200
+      register: page_servie
+      delegate_to: localhost
+      become: false                 # simple requete HTTP : aucune elevation necessaire
+      when: not ansible_check_mode
+
+    - name: Controle fonctionnel - la page servie contient le message attendu
+      ansible.builtin.assert:
+        that: site_message in page_servie.content
+        fail_msg: "La page servie par {{ inventory_hostname }} ne contient pas '{{ site_message }}' : contenu ou chemin de deploiement incorrect"
+        success_msg: "Page servie conforme (HTTP {{ page_servie.status }}, message attendu present)"
+      when: not ansible_check_mode
+
   handlers:
     - name: Recharger nginx
       ansible.builtin.service:
