@@ -19,8 +19,10 @@ def nid():
     return _id
 
 
-def cible(expr, legende, ref="A"):
-    return {"datasource": DS, "expr": expr, "legendFormat": legende, "refId": ref, "range": True}
+def cible(expr, legende, ref="A", instant=False):
+    """instant=True : valeur actuelle seulement (panneaux d'etat) ; sinon serie sur la periode."""
+    return {"datasource": DS, "expr": expr, "legendFormat": legende, "refId": ref,
+            "range": not instant, "instant": instant}
 
 
 def seuils_pct(orange=80, rouge=90):
@@ -39,18 +41,19 @@ def courbe(titre, pos, cibles, unite="percent", desc="", maxi=100):
             "unit": unite, "min": 0, "max": maxi, "thresholds": seuils_pct(),
             "custom": {"thresholdsStyle": {"mode": "line+area"}, "lineWidth": 2, "fillOpacity": 10}},
             "overrides": []},
-        "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"]},
+        "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]},
                     "tooltip": {"mode": "multi"}},
     }
 
 
-def stat(titre, pos, cibles, unite="none", mappings=None, seuils=None, desc=""):
+def stat(titre, pos, cibles, unite="none", mappings=None, seuils=None, desc="", texte=None):
     return {
         "id": nid(), "type": "stat", "title": titre, "description": desc,
         "datasource": DS, "gridPos": pos, "targets": cibles,
         "fieldConfig": {"defaults": {"unit": unite, "mappings": mappings or [],
                                      "thresholds": seuils or seuils_pct()}, "overrides": []},
         "options": {"colorMode": "background", "graphMode": "none", "textMode": "value_and_name",
+                    "text": texte or {}, "wideLayout": True,
                     "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}},
     }
 
@@ -69,43 +72,43 @@ DSK_L = '100 * (1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_files
 DSK_W = '100 * (1 - windows_logical_disk_free_bytes{volume=~"[A-Z]:"} / windows_logical_disk_size_bytes{volume=~"[A-Z]:"})'
 
 panneaux = [
-    stat("Disponibilite des collecteurs (up)", {"x": 0, "y": 0, "w": 12, "h": 5},
-         [cible('up{job=~"node|windows"}', "{{instance}}")], mappings=ETAT, seuils=SEUIL_ETAT,
+    stat("Disponibilite des collecteurs (up)", {"x": 0, "y": 0, "w": 8, "h": 7},
+         [cible('up{job=~"node|windows"}', "{{instance}}", instant=True)], mappings=ETAT, seuils=SEUIL_ETAT,
          desc="Metrique 'up' produite par Prometheus lui-meme : 1 si la derniere collecte a reussi."),
-    stat("Services critiques", {"x": 12, "y": 0, "w": 12, "h": 5}, [
+    stat("Services critiques", {"x": 8, "y": 0, "w": 16, "h": 7}, [
         cible('node_systemd_unit_state{state="active", name=~"(nginx|ssh|prometheus|grafana-server)[.]service"}',
-              "{{instance}} {{name}}", "A"),
+              "{{instance}} {{name}}", "A", instant=True),
         cible('windows_service_state{state="running", service=~"(?i)(dns|ntds|netlogon|winrm)"}',
-              "{{instance}} {{service}}", "B")],
-         mappings=ETAT, seuils=SEUIL_ETAT,
+              "{{instance}} {{service}}", "B", instant=True)],
+         mappings=ETAT, seuils=SEUIL_ETAT, texte={"titleSize": 13, "valueSize": 15},
          desc="Linux : collecteur systemd de node_exporter. Windows : collecteur service de windows_exporter."),
-    courbe("CPU utilise (%)", {"x": 0, "y": 5, "w": 12, "h": 8},
+    courbe("CPU utilise (%)", {"x": 0, "y": 7, "w": 12, "h": 10},
            [cible(CPU_L, "{{instance}}", "A"), cible(CPU_W, "{{instance}}", "B")],
            desc="100 - temps idle. Seuil d'alerte CpuEleve : 85 % pendant 5 min."),
-    courbe("Memoire utilisee (%)", {"x": 12, "y": 5, "w": 12, "h": 8},
+    courbe("Memoire utilisee (%)", {"x": 12, "y": 7, "w": 12, "h": 10},
            [cible(MEM_L, "{{instance}}", "A"), cible(MEM_W, "{{instance}}", "B")],
            desc="Linux : MemAvailable (cache recuperable deduit). Seuil d'alerte : 90 %."),
-    courbe("Stockage utilise (%)", {"x": 0, "y": 13, "w": 12, "h": 8},
+    courbe("Stockage utilise (%)", {"x": 0, "y": 17, "w": 12, "h": 10},
            [cible(DSK_L, "{{instance}} {{mountpoint}}", "A"), cible(DSK_W, "{{instance}} {{volume}}", "B")],
            desc="Seuil d'alerte DisqueLinux/WindowsPresquePlein : 80 % pendant 2 min."),
     {
         "id": nid(), "type": "bargauge", "title": "Remplissage des volumes (seuil 80 %)",
-        "datasource": DS, "gridPos": {"x": 12, "y": 13, "w": 12, "h": 8},
-        "targets": [cible(DSK_L, "{{instance}} {{mountpoint}}", "A"),
-                    cible(DSK_W, "{{instance}} {{volume}}", "B")],
+        "datasource": DS, "gridPos": {"x": 12, "y": 17, "w": 12, "h": 10},
+        "targets": [cible(DSK_L, "{{instance}} {{mountpoint}}", "A", instant=True),
+                    cible(DSK_W, "{{instance}} {{volume}}", "B", instant=True)],
         "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100,
                                      "thresholds": seuils_pct()}, "overrides": []},
         "options": {"displayMode": "gradient", "orientation": "horizontal",
                     "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}},
     },
-    stat("Duree depuis le dernier demarrage", {"x": 0, "y": 21, "w": 12, "h": 5}, [
-        cible("time() - node_boot_time_seconds", "{{instance}}", "A"),
-        cible("time() - windows_system_boot_time_timestamp", "{{instance}}", "B")],
+    stat("Duree depuis le dernier demarrage", {"x": 0, "y": 27, "w": 12, "h": 5}, [
+        cible("time() - node_boot_time_seconds", "{{instance}}", "A", instant=True),
+        cible("time() - windows_system_boot_time_timestamp", "{{instance}}", "B", instant=True)],
         unite="s", seuils={"mode": "absolute", "steps": [{"color": "blue", "value": None}]},
         desc="Un redemarrage non planifie se voit ici (valeur remise a zero)."),
     {
         "id": nid(), "type": "alertlist", "title": "Alertes Prometheus",
-        "gridPos": {"x": 12, "y": 21, "w": 12, "h": 5},
+        "gridPos": {"x": 12, "y": 27, "w": 12, "h": 5},
         "options": {"alertInstanceLabelFilter": "", "dashboardAlerts": False, "groupMode": "default",
                     "maxItems": 10, "sortOrder": 1, "stateFilter": {"firing": True, "pending": True},
                     "viewMode": "list", "datasource": "Prometheus"},
@@ -116,7 +119,7 @@ tableau = {
     "uid": "infraready-labo", "title": "InfraReady - etat du laboratoire",
     "description": "CPU, memoire, stockage et disponibilite de LINUX01, OPS01 et WIN-DC01 (source : Prometheus sur OPS01).",
     "tags": ["infraready", "linux", "windows"], "timezone": "browser", "editable": False,
-    "refresh": "30s", "time": {"from": "now-1h", "to": "now"},
+    "refresh": "30s", "time": {"from": "now-30m", "to": "now"},
     "schemaVersion": 39, "version": 1, "panels": panneaux, "templating": {"list": []},
     "annotations": {"list": []},
 }

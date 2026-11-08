@@ -87,7 +87,7 @@ ansible-playbook playbooks/verification.yml --limit windows -k
 
 `-K` : mot de passe sudo · `-k` : mot de passe WinRM de `svc_ansible`. Les mots de passe sudo diffèrent entre OPS01 et LINUX01, d'où les `--limit` séparés.
 
-Accès à la supervision depuis l'hôte : Grafana `http://192.168.50.30:3000` (tableau « InfraReady - etat du laboratoire »), Prometheus `http://192.168.50.30:9090` (onglets *Targets* et *Alerts*).
+Accès à la supervision depuis l'hôte : Grafana `http://192.168.50.30:3000` (tableau « InfraReady - etat du laboratoire »), Prometheus `http://192.168.50.30:9090/classic/targets` et `/classic/alerts` (le paquet Ubuntu de Prometheus ne fournit que l'interface « classic »).
 
 ## Intégration continue
 

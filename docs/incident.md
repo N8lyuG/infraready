@@ -23,7 +23,7 @@ L'équipe qui diagnostique ne connaît que le symptôme.
 ## 1. Symptôme observé
 
 - Grafana, tableau « InfraReady - etat du laboratoire » : panneau **Disponibilité** → LINUX01 `HORS SERVICE`, courbes CPU/mémoire/disque de LINUX01 interrompues.
-- Prometheus > Alerts : `HoteInjoignable` **pending** puis **firing** après 1 min pour `instance="LINUX01", job="node"`.
+- Prometheus `/classic/alerts` : `HoteInjoignable` **pending** puis **firing** après 1 min pour `instance="LINUX01", job="node"`.
 - Le site web répond toujours (HTTP 200) : l'incident ne touche que la supervision.
 
 _Preuves : S06_xx_grafana_linux01_down.png, S06_xx_prometheus_alerte_firing.png_
@@ -32,7 +32,7 @@ _Preuves : S06_xx_grafana_linux01_down.png, S06_xx_prometheus_alerte_firing.png_
 
 | # | Question | Commande | Résultat attendu si… | Résultat obtenu |
 |---|---|---|---|---|
-| 1 | Prometheus voit-il une erreur ? | Prometheus > Status > Targets | `context deadline exceeded` = paquets perdus ; `connection refused` = rien n'écoute | _…_ |
+| 1 | Prometheus voit-il une erreur ? | Prometheus `/classic/targets` | `context deadline exceeded` = paquets perdus ; `connection refused` = rien n'écoute | _…_ |
 | 2 | La machine est-elle vivante ? | `ping -c 2 192.168.50.20` (OPS01) | réponse = réseau et VM OK | _…_ |
 | 3 | Le port répond-il depuis OPS01 ? | `curl -m 5 -s http://192.168.50.20:9100/metrics \| head -3` | délai dépassé = filtrage | _…_ |
 | 4 | Le collecteur tourne-t-il ? | `systemctl is-active prometheus-node-exporter` (LINUX01) | `active` | _…_ |
@@ -62,7 +62,7 @@ _Résultat obtenu : à compléter (récap Ansible)._
 ## 5. Vérification du retour à la normale
 
 - `ansible-playbook playbooks/verification.yml --limit supervision -K` → toutes les cibles `up`.
-- Prometheus > Targets : `node / LINUX01` **UP** ; alerte `HoteInjoignable` revenue à **inactive**.
+- Prometheus `/classic/targets` : `node / LINUX01` **UP** ; alerte `HoteInjoignable` revenue à **inactive**.
 - Grafana : LINUX01 `EN SERVICE`, courbes reprises (trou visible pendant l'incident = durée d'impact mesurable).
 - 2e lancement de `linux.yml` : `changed=0`.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # deployer-labo.sh - InfraReady : enchaine les etapes S5-S6 depuis OPS01 en journalisant chaque sortie.
 # Usage (racine du depot, sur OPS01) :  bash scripts/linux/deployer-labo.sh <etape> [<etape>...]
-#   etapes : prerequis linux monitoring verification maintenance incident tout
+#   etapes : prerequis linux monitoring tableau verification maintenance incident tout
 # Les mots de passe sont demandes UNE fois, gardes dans des fichiers temporaires en RAM (/dev/shm,
 # droits 600) passes a Ansible par --become-password-file / --connection-password-file, puis
 # effaces a la sortie du script (trap), meme en cas d'erreur ou de Ctrl-C. Rien n'est ecrit sur disque.
@@ -92,6 +92,10 @@ monitoring() {
     etape S05_05c_monitoring_2e_win-dc01 "${AP[@]}" playbooks/monitoring.yml "${WIN[@]}"
 }
 
+tableau() {   # redeploie seulement la partie OPS01 (tableau de bord, config Prometheus/Grafana)
+    etape S06_03_tableau_de_bord_ops01 "${AP[@]}" playbooks/monitoring.yml "${OPS[@]}"
+}
+
 verification() {
     etape S06_05a_verification_ops01 "${AP[@]}" playbooks/verification.yml "${OPS[@]}"
     etape S06_05b_verification_linux01 "${AP[@]}" playbooks/verification.yml "${LNX[@]}"
@@ -135,7 +139,7 @@ incident() {
 besoin_secrets
 for e in "$@"; do
     case $e in
-        prerequis|linux|monitoring|verification|maintenance|incident) $e ;;
+        prerequis|linux|monitoring|tableau|verification|maintenance|incident) $e ;;
         tout) prerequis; linux; monitoring; verification; maintenance ;;
         *) echo "etape inconnue : $e"; exit 1 ;;
     esac
