@@ -83,20 +83,20 @@ prerequis() {
     etape S05_01d_ops01_syntaxe bash -c 'for pb in playbooks/*.yml; do ansible-playbook "$pb" --syntax-check || exit 1; done'
 }
 
-linux() {
-    etape S05_02a_linux_check_diff "${AP[@]}" playbooks/linux.yml "${LNX[@]}" --check --diff
-    etape S05_02b_linux_1er_passage "${AP[@]}" playbooks/linux.yml "${LNX[@]}"
-    etape S05_02c_linux_2e_passage "${AP[@]}" playbooks/linux.yml "${LNX[@]}"
+linux() {     # installation initiale : carte NAT branchee
+    etape S05_02a_linux_check_diff "${AP[@]}" playbooks/linux.yml "${LNX[@]}" -e acces_internet=true --check --diff
+    etape S05_02b_linux_1er_passage "${AP[@]}" playbooks/linux.yml "${LNX[@]}" -e acces_internet=true
+    etape S05_02c_linux_2e_passage "${AP[@]}" playbooks/linux.yml "${LNX[@]}" -e acces_internet=true
     etape S05_03_linux01_ufw_status "${ADHOC_LNX[@]}" -m ansible.builtin.command -a 'ufw status verbose'
 }
 
-monitoring() {
-    etape S05_04a_monitoring_ops01 "${AP[@]}" playbooks/monitoring.yml "${OPS[@]}"
-    etape S05_04b_monitoring_linux01 "${AP[@]}" playbooks/monitoring.yml "${LNX[@]}"
-    etape S05_04c_monitoring_win-dc01 "${AP[@]}" playbooks/monitoring.yml "${WIN[@]}"
-    etape S05_05a_monitoring_2e_ops01 "${AP[@]}" playbooks/monitoring.yml "${OPS[@]}"
-    etape S05_05b_monitoring_2e_linux01 "${AP[@]}" playbooks/monitoring.yml "${LNX[@]}"
-    etape S05_05c_monitoring_2e_win-dc01 "${AP[@]}" playbooks/monitoring.yml "${WIN[@]}"
+monitoring() {     # installation initiale : carte NAT branchee
+    etape S05_04a_monitoring_ops01 "${AP[@]}" playbooks/monitoring.yml "${OPS[@]}" -e acces_internet=true
+    etape S05_04b_monitoring_linux01 "${AP[@]}" playbooks/monitoring.yml "${LNX[@]}" -e acces_internet=true
+    etape S05_04c_monitoring_win-dc01 "${AP[@]}" playbooks/monitoring.yml "${WIN[@]}" -e acces_internet=true
+    etape S05_05a_monitoring_2e_ops01 "${AP[@]}" playbooks/monitoring.yml "${OPS[@]}" -e acces_internet=true
+    etape S05_05b_monitoring_2e_linux01 "${AP[@]}" playbooks/monitoring.yml "${LNX[@]}" -e acces_internet=true
+    etape S05_05c_monitoring_2e_win-dc01 "${AP[@]}" playbooks/monitoring.yml "${WIN[@]}" -e acces_internet=true
 }
 
 tableau() {   # redeploie seulement la partie OPS01 (tableau de bord, config Prometheus/Grafana)

@@ -4,6 +4,10 @@ reseau_labo: 192.168.50.0/24
 ip_ops01: 192.168.50.30            # seule source autorisee a collecter les metriques
 domaine: infraready.test
 
+# Le labo n'a pas d'acces Internet en exploitation. Pour une installation ou une mise a jour,
+# brancher la carte NAT temporaire puis lancer avec -e acces_internet=true (docs/maintenance.md).
+acces_internet: false
+
 # Seuils partages par la maintenance, la verification et les alertes Prometheus
 seuil_disque_pct: 80               # au-dela : alerte / maintenance bloquee
 seuil_disque_min_maj_mo: 1024      # espace libre minimal sur / avant une mise a jour

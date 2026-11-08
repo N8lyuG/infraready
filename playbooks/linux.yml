@@ -20,8 +20,10 @@
           - "{{ paquet_web }}"
           - ufw
         state: present
-        update_cache: true
-        cache_valid_time: 3600      # evite un "changed" a chaque passage (idempotence)
+        # Le labo est isole en exploitation : on ne rafraichit le cache apt que si la carte NAT
+        # est branchee (-e acces_internet=true). Sinon apt resterait bloque sur les miroirs.
+        update_cache: "{{ acces_internet | bool }}"
+        cache_valid_time: "{{ 3600 if acces_internet | bool else omit }}"
 
     - name: Deployer la page du site
       ansible.builtin.template:

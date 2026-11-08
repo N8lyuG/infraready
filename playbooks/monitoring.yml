@@ -22,8 +22,8 @@
       ansible.builtin.apt:
         name: prometheus-node-exporter
         state: present
-        update_cache: true
-        cache_valid_time: 3600
+        update_cache: "{{ acces_internet | bool }}"   # labo isole : voir group_vars/all.yml
+        cache_valid_time: "{{ 3600 if acces_internet | bool else omit }}"
 
     # Le collecteur systemd (desactive par defaut) expose l'etat des services : c'est lui qui
     # permet de voir "nginx arrete" dans Grafana et de declencher l'alerte ServiceLinuxArrete.
@@ -69,6 +69,7 @@
         mode: "0644"
       delegate_to: localhost
       run_once: true
+      when: acces_internet | bool   # hors ligne : le MSI deja telecharge et verifie est reutilise
 
     - name: Creer le dossier des paquets
       ansible.windows.win_file:
@@ -118,8 +119,8 @@
       ansible.builtin.apt:
         name: prometheus
         state: present
-        update_cache: true
-        cache_valid_time: 3600
+        update_cache: "{{ acces_internet | bool }}"   # labo isole : voir group_vars/all.yml
+        cache_valid_time: "{{ 3600 if acces_internet | bool else omit }}"
 
     - name: Creer le dossier des regles d'alerte
       ansible.builtin.file:
@@ -181,7 +182,7 @@
       ansible.builtin.apt:
         name: grafana
         state: present
-        update_cache: true
+        update_cache: "{{ acces_internet | bool }}"
 
     # Consultation anonyme en LECTURE SEULE (role Viewer) : ecran de supervision / demonstration
     # sans partager le compte admin. Port 3000 limite au reseau du labo par ufw (voir plus bas).
