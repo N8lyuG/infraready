@@ -22,13 +22,30 @@ demander() {   # $1 = invite, $2 = fichier destination
 }
 
 besoin_secrets() {
-    [[ -s $SECRETS/ops01 ]] || demander "Mot de passe sudo de nalyug sur OPS01" "$SECRETS/ops01"
-    [[ -s $SECRETS/linux01 ]] || demander "Mot de passe sudo du compte ansible sur LINUX01" "$SECRETS/linux01"
-    [[ -s $SECRETS/winrm ]] || demander "Mot de passe WinRM de svc_ansible" "$SECRETS/winrm"
+    # Chaque secret est verifie aussitot (3 essais) : une faute de frappe ne fait pas echouer
+    # le deploiement 10 minutes plus tard.
     if ! ssh-add -l >/dev/null 2>&1; then
         eval "$(ssh-agent -s)" >/dev/null
-        ssh-add ~/.ssh/id_ed25519_lab
+        ssh-add ~/.ssh/id_ed25519_lab || exit 1
     fi
+    local i
+    for i in 1 2 3; do
+        demander "Mot de passe sudo de nalyug sur OPS01" "$SECRETS/ops01"
+        sudo -k; sudo -S -p '' -v < "$SECRETS/ops01" 2>/dev/null && { echo "  -> OK"; break; }
+        echo "  -> refuse, recommence"; (( i == 3 )) && exit 1
+    done
+    for i in 1 2 3; do
+        demander "Mot de passe sudo du compte ansible sur LINUX01" "$SECRETS/linux01"
+        ansible linux -b --become-password-file "$SECRETS/linux01" -m ansible.builtin.command -a true >/dev/null 2>&1 \
+            && { echo "  -> OK"; break; }
+        echo "  -> refuse, recommence"; (( i == 3 )) && exit 1
+    done
+    for i in 1 2 3; do
+        demander "Mot de passe WinRM de svc_ansible" "$SECRETS/winrm"
+        ansible windows --connection-password-file "$SECRETS/winrm" -m ansible.windows.win_ping >/dev/null 2>&1 \
+            && { echo "  -> OK"; break; }
+        echo "  -> refuse, recommence"; (( i == 3 )) && exit 1
+    done
 }
 
 # etape <nom-journal> <commande...> : affiche, execute, journalise ; s'arrete au premier echec
