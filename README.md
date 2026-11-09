@@ -37,7 +37,8 @@ infraready/
 ├── requirements.yml            collections Ansible (ansible.windows, community.windows, community.general)
 ├── inventory/
 │   ├── hosts.yml               groupes linux, supervision, windows
-│   └── group_vars/             connexion, services critiques, seuils, ports (aucun secret)
+│   └── group_vars/             connexion, services critiques, seuils, ports (aucun secret) — ici et non à la racine :
+│                               Ansible lit group_vars à côté de l'inventaire (voir docs/conformite.md)
 ├── playbooks/
 │   ├── linux.yml               Nginx + page déployée + pare-feu ufw            (tâche D)
 │   ├── windows.yml             dossier, script de contrôle, service DNS         (tâche D)
@@ -52,9 +53,11 @@ infraready/
 │   └── grafana/provisioning/   source de données + fournisseur de tableaux de bord
 ├── scripts/
 │   ├── linux/check-nginx.sh    contrôle de service (code retour exploitable)
+│   ├── linux/deployer-labo.sh  enchaîne les étapes S5-S6 et les scénarios, journalise, secrets en RAM
 │   ├── windows/s3_ad_structure.ps1   OU, groupes AGDLP, comptes, partage (tâche B)
 │   └── outils/                 génération du tableau de bord, contrôle de cohérence (CI)
-├── docs/                       architecture, adressage, sécurité, supervision, maintenance, incident, scénarios de panne, dossier PDF, présentation
+├── docs/                       architecture, adressage, sécurité, supervision, maintenance, incident, scénarios de panne,
+│                               conformité (matrice exigences/preuves), dossier PDF, présentation
 └── .github/workflows/validation.yml
 ```
 
@@ -96,6 +99,8 @@ Accès à la supervision depuis l'hôte : Grafana `http://192.168.50.30:3000` (t
 Le runner hébergé par GitHub **n'a aucune route vers le labo privé** : il valide le code, il ne déploie pas. Un déploiement automatique demanderait un runner auto-hébergé sur OPS01 (facultatif, non retenu : surface d'attaque supplémentaire).
 
 ## Suivi des tâches
+
+Matrice détaillée exigence par exigence (réalisation, emplacement, preuve, statut Validé / Partiel) et écarts à la structure recommandée : [docs/conformite.md](docs/conformite.md).
 
 | Tâche | Contenu | État |
 |---|---|---|
