@@ -85,7 +85,7 @@ ansible-playbook playbooks/verification.yml --limit supervision,linux -K
 ansible-playbook playbooks/verification.yml --limit windows -k
 ```
 
-`-K` : mot de passe sudo · `-k` : mot de passe WinRM de `svc_ansible`. Les mots de passe sudo diffèrent entre OPS01 et LINUX01, d'où les `--limit` séparés.
+`-K` : mot de passe sudo · `-k` : mot de passe WinRM de `svc_ansible`. Le labo n'a pas Internet en exploitation : pour une installation ou une mise à jour, brancher la carte NAT temporaire et ajouter `-e acces_internet=true` (sinon les playbooks n'essaient pas de joindre les dépôts). Les mots de passe sudo diffèrent entre OPS01 et LINUX01, d'où les `--limit` séparés.
 
 Accès à la supervision depuis l'hôte : Grafana `http://192.168.50.30:3000` (tableau « InfraReady - etat du laboratoire »), Prometheus `http://192.168.50.30:9090/classic/targets` et `/classic/alerts` (le paquet Ubuntu de Prometheus ne fournit que l'interface « classic »).
 
@@ -102,7 +102,7 @@ Le runner hébergé par GitHub **n'a aucune route vers le labo privé** : il val
 | A | VM, réseau, DNS, schéma | ✅ séance 2 — tests T01–T08 24/24 |
 | B | AD DS, OU, groupes AGDLP, comptes, partage | ✅ séance 3 — [securite.md](docs/securite.md) |
 | C | Comptes, permissions, 2e disque monté (fstab), services, journaux Linux | ✅ séance 4 |
-| D | Playbooks Linux et Windows, idempotence | ✅ séance 4 — 2e passage `changed=0` |
+| D | Playbooks Linux et Windows, idempotence | ✅ séance 4 — 2e passage `changed=0`, contrôle fonctionnel HTTP, 6 scénarios de panne ([scenarios-pannes.md](docs/scenarios-pannes.md)) |
 | E | Maintenance et mises à jour | ✅ séance 6 — LINUX01/OPS01 mis à jour, Windows Update en rescue (DC sans Internet) — [maintenance.md](docs/maintenance.md) |
 | F | Prometheus, Grafana, seuils et alertes | ✅ séances 5–6 — 4 cibles up, 7 alertes, tableau provisionné |
 | G | Dépôt GitHub + Actions | ✅ séance 7 — [run vert](https://github.com/N8lyuG/infraready/actions/runs/42532082985) : 4 jobs (lint, supervision, scripts, secrets) |

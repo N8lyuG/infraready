@@ -80,7 +80,7 @@ Grafana** (inactive → pending → firing → inactive), pas sur la réception 
 | Alerte | Méthode de test contrôlée | Déclenchement | Retour à la normale | Preuves |
 |---|---|---|---|---|
 | HoteInjoignable | Suppression de la règle ufw 9100 sur LINUX01 + coupure de la connexion établie (incident H) | pending 23:08:18, firing 23:09:37 | inactive à 23:15:13 après `linux.yml` | `S06_12b`, `S06_12`, `S06_15a`, [incident.md](incident.md) |
-| ServiceLinuxArrete | Arrêt de nginx sur LINUX01 (scénario de panne 5) | voir [scenarios-pannes.md](scenarios-pannes.md) | après `linux.yml` | `S04_30b`, `S04_30e` |
+| ServiceLinuxArrete | Arrêt de nginx sur LINUX01 (scénario de panne 5) | arrêt 00:24:16, firing 00:24:33 (`nginx.service`, LINUX01) | inactive à 01:03:45 après `linux.yml` | `S04_30b` (Prometheus, Grafana), `S04_30d`, [scenarios-pannes.md](scenarios-pannes.md) |
 
 Les règles sont validées avant déploiement (`promtool check rules` dans `monitoring.yml` et en CI).
 

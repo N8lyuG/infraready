@@ -1,4 +1,4 @@
-# Scénarios de panne contrôlée (support S4, §7.4)
+# Scénarios de panne contrôlée (support S4, §7.4) et compte rendu de dépannage (étape 8)
 
 Projet Ansible : `~/infraready` sur OPS01 (`inventory.ini`, groupe `linux` = LINUX01 seul, `nginx.yml`, `templates/index.html.j2`, variable `site_message`, page `/var/www/html/index.html`).
 Un seul scénario actif à la fois. Sauvegardes de référence : `nginx.yml.etat-initial`, `templates/index.html.j2.etat-initial`.
@@ -50,3 +50,118 @@ Un seul scénario actif à la fois. Sauvegardes de référence : `nginx.yml.etat
 - Le module `template` vérifie la destination qu'on lui donne, pas ce que le service lit. Le handler suit la tâche (`changed`), pas l'effet réel sur le service : Nginx a été rechargé pour rien.
 - Panne ni vue ni signalée : seuls l'horodatage (`ls --time-style=full-iso`) et la comparaison avec la configuration du service (`root`) la révèlent. D'où l'intérêt d'un contrôle fonctionnel automatique après déploiement (scénario 6).
 - Après une correction, il faut supprimer à la main ce que l'erreur a créé et noter ce nettoyage.
+
+## Scénarios 4 à 6 (09/11/2026, dépôt restructuré)
+
+Depuis S5, le projet est le dépôt `infraready` : `playbooks/linux.yml` remplace `nginx.yml`. Les
+défauts sont injectés dans une **copie jetable** du dépôt sur OPS01 (`~/infraready-scenarios`,
+supprimée à la fin) : le dépôt réel n'est jamais modifié. Étapes rejouables :
+`bash scripts/linux/deployer-labo.sh sc4 sc5 sc5_correction sc6` (journaux `S04_29` à `S04_31`).
+
+## Scénario 4 — Un handler n'est pas notifié ✅
+
+Support : un fichier de configuration Nginx `/etc/nginx/conf.d/infraready-version.conf` ajoute
+l'en-tête HTTP `X-InfraReady-Version`. Le playbook `sc4.yml` le dépose et notifie `Recharger nginx`.
+
+| Phase | Constat / action | Preuve |
+|---|---|---|
+| Référence | `version_site=v1` : `changed=2` (fichier + handler) ; `curl -sI` → `X-InfraReady-Version: v1` | S04_29a |
+| Défaut | Ligne `notify: Recharger nginx` retirée (`diff` → `15d14`) ; déploiement de `v2` : `changed=1`, **aucun handler**, `failed=0` | S04_29b |
+| Symptôme | 00:24:03 : le serveur sert toujours `v1` | S04_29c |
+| Diagnostic | Sur disque : `v2` ; `nginx -T` (relit le disque) : `v2` ; dernier `Reloaded nginx.service` du journal **antérieur** à la modification du fichier → le processus en service utilise l'ancienne configuration | S04_29c |
+| Correction 1 (insuffisante) | `notify` remis (`diff` vide) et playbook relancé : `changed=0` → **le handler ne se déclenche pas** (il ne réagit qu'à un changement), toujours `v1` | S04_29e |
+| Correction 2 | Rechargement explicite `ansible linux -b -m service -a "name=nginx state=reloaded"` → `v2` servi | S04_29e |
+| Nettoyage | Fichier de test supprimé + rechargement → plus d'en-tête ; site HTTP 200 | S04_29e |
+
+**Enseignements** :
+- Un fichier de configuration à jour sur le disque ne prouve pas que le service l'utilise : il faut
+  comparer la **date du dernier rechargement** à la date du fichier, et tester le comportement servi.
+- Un oubli de `notify` ne se rattrape pas en remettant `notify` : le changement est déjà appliqué, la
+  tâche répond `ok`, le handler ne part pas. Il faut recharger explicitement (ou utiliser
+  `--force-handlers` lors du passage fautif).
+- L'écart d'environ 2 s observé entre les horloges d'OPS01 et de LINUX01 rappelle la limite « pas de
+  NTP centralisé » : corréler les journaux de deux machines demande une source de temps commune.
+
+## Scénario 5 — Le service Nginx est arrêté ✅
+
+| Phase | Constat / action | Preuve |
+|---|---|---|
+| Défaut | 00:24:16 : `ansible linux -b -m service -a "name=nginx state=stopped"` | S04_30a |
+| Symptôme | `curl: (7) Failed to connect … Couldn't connect to server` (refus immédiat) ; alerte **`ServiceLinuxArrete` FIRING** (`nginx.service`, LINUX01) ; Grafana : LINUX01 `EN SERVICE` mais `nginx.service` `HORS SERVICE` | S04_30a, S04_30b (Prometheus, Grafana) |
+| Diagnostic | `systemctl is-active` → `inactive` ; `status` → `inactive (dead) since 00:24:16` ; journal : `Stopping` / `Stopped nginx.service` (arrêt propre, pas un plantage) ; `ss -ltn` : rien sur le port 80 | S04_30c |
+| Cause | Service arrêté (arrêt volontaire tracé dans le journal systemd) | — |
+| Correction | `linux.yml` (état `started`) : « Demarrer et activer Nginx » **changed** ; contrôle fonctionnel « Page servie conforme » | S04_30d |
+| Vérification | 01:03:45 : HTTP 200, **0 alerte** ; 2e passage `changed=0` | S04_30d, S04_30f |
+
+**Comparaison avec l'incident H** : ici le port **refuse** la connexion (la machine répond « rien
+n'écoute ») ; dans l'incident H, le pare-feu **jetait** les paquets (délai dépassé). Le message
+d'erreur oriente à lui seul vers l'application ou vers le réseau. La supervision fait la même
+distinction : `HoteInjoignable` (collecte perdue) contre `ServiceLinuxArrete` (machine supervisée,
+service arrêté).
+
+### Défaut découvert pendant la correction : playbook non rejouable hors ligne
+
+Le premier lancement de la correction (00:26:33) est resté bloqué plus de 20 minutes sur
+« Installer Nginx et ufw », puis a échoué : `Failed to update apt cache` (S04_30d0).
+
+- **Cause** : `cache_valid_time: 3600` impose un `apt update` dès que le cache a plus d'une heure.
+  La NAT était refermée depuis 23:23 : chaque résolution DNS d'un miroir prenait 20 s (WIN-DC01
+  tente de résoudre vers Internet), et le module `apt` réessayait.
+- **Correction** (commit `0dfcb3d`) : variable `acces_internet: false` dans `group_vars/all.yml` ;
+  `update_cache` et `cache_valid_time` ne s'appliquent qu'avec `-e acces_internet=true` (installations,
+  carte NAT branchée). Même traitement dans `monitoring.yml`, téléchargement du MSI compris.
+- **Vérification** : relance à 01:02:33 → « Installer Nginx et ufw » `ok` immédiatement, sans réseau.
+- **Leçon** : un playbook validé avec Internet peut ne plus être rejouable dans les conditions réelles
+  d'exploitation. Le scénario a révélé une dépendance cachée qu'aucun test « vert » n'avait montrée.
+
+## Scénario 6 — Contrôle fonctionnel `uri` + `assert` ✅
+
+Ajout permanent à `playbooks/linux.yml` : après `flush_handlers`, requête HTTP **depuis OPS01**
+(comme un utilisateur, à travers le pare-feu), puis `assert` sur la présence de `site_message` dans
+la page servie. Ignoré en `--check` (le module `uri` ne s'exécute pas en simulation).
+
+| Phase | Constat / action | Preuve |
+|---|---|---|
+| Défaut | Même erreur que le scénario 3 : `dest: /tmp/ir-index.html` (`diff` → `31c31`), avec un nouveau message `Version 2 du site InfraReady` | S04_31a |
+| Résultat | Page `changed`, handler exécuté… puis **`FAILED`** : « La page servie par LINUX01 ne contient pas 'Version 2 du site InfraReady' : contenu ou chemin de deploiement incorrect » ; `failed=1` | S04_31a |
+| Correction | Playbook restauré : `changed=0`, « Page servie conforme (HTTP 200, message attendu present) » ; artefact `/tmp/ir-index.html` supprimé | S04_31b |
+
+**Enseignement** : au scénario 3, le même défaut donnait `failed=0` et passait inaperçu. Avec le
+contrôle fonctionnel, Ansible vérifie le **résultat** et plus seulement l'exécution des tâches : la
+panne latente devient une erreur visible au moment du déploiement.
+
+## Étape 8 — Compte rendu de dépannage (synthèse)
+
+### Méthode suivie à chaque fois
+
+1. **Référence** connue et prouvée avant le défaut (état initial, horodatages, contenu servi).
+2. **Un seul défaut** à la fois, injecté de façon réversible et tracée (`diff` montrant la seule ligne modifiée).
+3. **Symptôme** observé du point de vue de l'utilisateur ou de la supervision, avec l'heure.
+4. **Tests du plus général au plus précis** : service actif ? port à l'écoute ? réponse HTTP ? contenu ? configuration lue ? journaux ?
+5. **Cause** formulée à partir des preuves, en distinguant fait et hypothèse.
+6. **Correction par le dépôt** (source de vérité), précédée de `--syntax-check` et `--check --diff`.
+7. **Vérification** par le test fonctionnel initial, puis 2e passage `changed=0`.
+8. **Nettoyage** de ce que l'erreur a laissé, et trace dans le journal de changements.
+
+### Tableau récapitulatif
+
+| # | Défaut | Ce qu'Ansible a affiché | Symptôme réel | Indice décisif | Correction |
+|---|---|---|---|---|---|
+| 1 | Variable `site_message` fausse | `failed=0`, page `changed` | Contenu servi faux, HTTP 200 | `diff` avec l'état initial (une ligne) | Restauration, redéploiement |
+| 2 | Variable mal orthographiée dans le modèle | `FAILED` (`AnsibleUndefinedVariable`) | Aucun (page intacte) | Message d'erreur explicite + `grep` | Modèle restauré |
+| 3 | Mauvais chemin de destination | `failed=0`, puis `changed=0` | Aucun tant que le contenu ne change pas (panne latente) | Horodatage de la vraie page + `root` de Nginx | Restauration + suppression de l'artefact |
+| 4 | Handler non notifié | `failed=0`, pas de handler | Ancienne configuration servie | Date du dernier rechargement < date du fichier | Rechargement explicite |
+| 5 | Service arrêté | (détecté par la supervision) | Connexion refusée, alerte `ServiceLinuxArrete` | `systemctl status` + journal `Stopped` | `linux.yml` (état `started`) |
+| 6 | Mauvais chemin + contrôle fonctionnel | **`FAILED`** (`assert`) | Détecté au déploiement | Message de l'`assert` | Restauration |
+| — | Cache apt hors ligne (découvert) | Bloqué puis `FAILED` | Correction impossible | Processus `apt http` en attente, DNS 20 s | Variable `acces_internet` |
+
+### Conclusions
+
+- **Vert ne veut pas dire correct** : quatre défauts sur six donnaient `failed=0`. Seuls un test
+  fonctionnel, la supervision ou la comparaison avec une référence les ont révélés.
+- **Un `changed` décrit une action, pas un effet** : handler non déclenché (sc. 4), handler exécuté
+  pour rien (sc. 3).
+- **Le dépôt est la source de vérité** : chaque correction est un rejeu du playbook, jamais une
+  retouche manuelle, et le 2e passage `changed=0` prouve le retour à l'état décrit.
+- **Tester dans les conditions réelles d'exploitation** : le labo hors ligne a révélé un défaut
+  qu'aucun lancement avec Internet n'avait montré.
